@@ -672,6 +672,29 @@
   .corner-tl { top: 60px; left: 264px; }
   .corner-br { bottom: 0; right: 0; transform: rotate(180deg); }
 
+  /* Endpoint history tags */
+  .endpoint-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--bg3);
+    border: 1px solid var(--line-bright);
+    padding: 2px 6px 2px 8px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s;
+    clip-path: polygon(0 0, calc(100% - 4px) 0, 100% 4px, 100% 100%, 4px 100%, 0 calc(100% - 4px));
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .endpoint-tag:hover { border-color: var(--accent); color: var(--accent); }
+  .endpoint-tag.current { border-color: var(--accent2); color: var(--accent2); }
+  .endpoint-tag-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+  .endpoint-tag-del { opacity: 0.4; font-size: 12px; flex-shrink: 0; }
+  .endpoint-tag:hover .endpoint-tag-del { opacity: 1; color: var(--danger); }
+
   /* Model tags */
   .model-tag {
     display: inline-flex;
@@ -754,9 +777,11 @@
   <aside class="sidebar">
     <div class="sidebar-section">
       <div class="sidebar-label">// endpoint</div>
-      <div class="url-input-wrapper" style="margin-bottom:8px">
-        <input type="text" id="ollamaUrl" value="http://localhost:11434" placeholder="http://host:11434">
+      <div class="url-input-wrapper" style="margin-bottom:4px">
+        <input type="text" id="ollamaUrl" placeholder="http://host:11434" list="endpointHistory" autocomplete="off">
+        <datalist id="endpointHistory"></datalist>
       </div>
+      <div id="endpointTags" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;min-height:0"></div>
       <button class="btn" onclick="loadModels()">
         <span class="loading-ring" id="connectSpinner" style="display:none"></span>
         <span>◈ CONNECT</span>
@@ -852,9 +877,69 @@
     return conversations.find(c => c.id === activeConvId);
   }
 
+  // ── ENDPOINT HISTORY ──
+  const MAX_ENDPOINTS = 8;
+
+  function getEndpointHistory() {
+    return JSON.parse(localStorage.getItem('ollama_endpoints') || '[]');
+  }
+
+  function saveEndpointHistory(list) {
+    localStorage.setItem('ollama_endpoints', JSON.stringify(list));
+  }
+
+  function addEndpointToHistory(url) {
+    let list = getEndpointHistory();
+    list = list.filter(e => e !== url);
+    list.unshift(url);
+    if (list.length > MAX_ENDPOINTS) list = list.slice(0, MAX_ENDPOINTS);
+    saveEndpointHistory(list);
+  }
+
+  function removeEndpointFromHistory(url) {
+    let list = getEndpointHistory().filter(e => e !== url);
+    saveEndpointHistory(list);
+    // if we removed the last-used one, clear it
+    if (localStorage.getItem('ollama_last_endpoint') === url) {
+      localStorage.removeItem('ollama_last_endpoint');
+    }
+    renderEndpointTags();
+  }
+
+  function renderEndpointTags() {
+    const list = getEndpointHistory();
+    const current = document.getElementById('ollamaUrl').value.trim();
+    const datalist = document.getElementById('endpointHistory');
+    const container = document.getElementById('endpointTags');
+
+    // Update datalist for native autocomplete
+    datalist.innerHTML = list.map(e => `<option value="${escapeHtml(e)}">`).join('');
+
+    if (!list.length) {
+      container.style.minHeight = '0';
+      container.innerHTML = '';
+      return;
+    }
+
+    container.style.minHeight = 'auto';
+    container.innerHTML = list.map(url => `
+      <div class="endpoint-tag ${url === current ? 'current' : ''}" onclick="selectEndpoint('${escapeHtml(url)}')">
+        <span class="endpoint-tag-text">${escapeHtml(url.replace('http://', '').replace('https://', ''))}</span>
+        <span class="endpoint-tag-del" onclick="event.stopPropagation();removeEndpointFromHistory('${escapeHtml(url)}')">×</span>
+      </div>
+    `).join('');
+  }
+
+  function selectEndpoint(url) {
+    document.getElementById('ollamaUrl').value = url;
+    renderEndpointTags();
+    loadModels();
+  }
+
   // ── CONNECT & MODELS ──
   async function loadModels() {
     const url = document.getElementById('ollamaUrl').value.trim();
+    if (!url) { showToast('✕ Enter an endpoint', true); return; }
     const spinner = document.getElementById('connectSpinner');
     spinner.style.display = 'inline-block';
 
@@ -869,11 +954,25 @@
         ? models.map(m => `<option value="${m.name}">${m.name}</option>`).join('')
         : '<option value="">No models found</option>';
 
+      // Restore last used model for this endpoint
+      const lastModel = localStorage.getItem(`ollama_model_${url}`);
+      if (lastModel && models.find(m => m.name === lastModel)) {
+        sel.value = lastModel;
+      }
+
       setStatus(true, `${models.length} MODELS`);
       showToast(`◈ ${models.length} models loaded`);
 
+      // Persist endpoint
+      addEndpointToHistory(url);
+      localStorage.setItem('ollama_last_endpoint', url);
+      renderEndpointTags();
+
       if (models.length) updateModelTag(sel.value);
-      sel.onchange = () => updateModelTag(sel.value);
+      sel.onchange = () => {
+        updateModelTag(sel.value);
+        localStorage.setItem(`ollama_model_${url}`, sel.value);
+      };
 
     } catch (e) {
       setStatus(false, 'DISCONNECTED');
@@ -1193,7 +1292,12 @@
   renderConversationList();
   renderMessages();
 
-  // Try auto-connect
+  // Restore last endpoint
+  const lastEndpoint = localStorage.getItem('ollama_last_endpoint') || 'http://localhost:11434';
+  document.getElementById('ollamaUrl').value = lastEndpoint;
+  renderEndpointTags();
+
+  // Auto-connect to last endpoint
   loadModels();
 </script>
 </body>
