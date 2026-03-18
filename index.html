@@ -1278,6 +1278,8 @@ async function loadModels() {
   } catch (e) {
     setStatus(false, 'CONNECT FAILED');
     showToast(`✕ ${e.message}`, true);
+    document.getElementById('modelSelect').innerHTML = '<option value="">— connect failed —</option>';
+    document.getElementById('activeBadge').style.display = 'none';
   }
 }
 
