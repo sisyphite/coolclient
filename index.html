@@ -143,28 +143,25 @@
     border-right: 1px solid var(--line-bright);
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: hidden;
     position: relative;
   }
-
-  .sidebar::-webkit-scrollbar { width: 3px; }
-  .sidebar::-webkit-scrollbar-track { background: transparent; }
-  .sidebar::-webkit-scrollbar-thumb { background: var(--line-bright); }
 
   .sidebar::before {
     content: '';
     position: absolute;
-    top: 0; right: 0; bottom: 0;
+    top: 0; right: 0;
     width: 1px;
+    height: 40%;
     background: linear-gradient(180deg, transparent, var(--accent), transparent);
     animation: scanV 6s linear infinite;
     pointer-events: none;
+    z-index: 1;
   }
 
   @keyframes scanV {
-    0% { transform: translateY(-100%); }
-    100% { transform: translateY(100%); }
+    0% { top: -40%; }
+    100% { top: 100%; }
   }
 
   .sidebar-section {
