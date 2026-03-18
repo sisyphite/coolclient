@@ -21,7 +21,6 @@
     --text-dim: #4a7a8a;
     --text-bright: #e8f4f8;
     --user-bg: #0a1a24;
-    --assistant-bg: #080f14;
     --danger: #ff3366;
     --grid-size: 40px;
   }
@@ -38,7 +37,6 @@
     position: relative;
   }
 
-  /* Grid background */
   body::before {
     content: '';
     position: fixed;
@@ -52,17 +50,13 @@
     z-index: 0;
   }
 
-  /* Scanlines */
   body::after {
     content: '';
     position: fixed;
     inset: 0;
     background: repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      rgba(0,0,0,0.05) 2px,
-      rgba(0,0,0,0.05) 4px
+      0deg, transparent, transparent 2px,
+      rgba(0,0,0,0.05) 2px, rgba(0,0,0,0.05) 4px
     );
     pointer-events: none;
     z-index: 1;
@@ -77,7 +71,6 @@
     z-index: 2;
   }
 
-  /* ── HEADER ── */
   header {
     grid-column: 1 / -1;
     display: flex;
@@ -121,11 +114,7 @@
     margin-right: auto;
   }
 
-  .header-status {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-  }
+  .header-status { display: flex; align-items: center; gap: 20px; }
 
   .status-dot {
     width: 6px; height: 6px;
@@ -149,15 +138,19 @@
     letter-spacing: 1px;
   }
 
-  /* ── SIDEBAR ── */
   .sidebar {
     background: var(--bg2);
     border-right: 1px solid var(--line-bright);
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
     position: relative;
   }
+
+  .sidebar::-webkit-scrollbar { width: 3px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--line-bright); }
 
   .sidebar::before {
     content: '';
@@ -166,6 +159,7 @@
     width: 1px;
     background: linear-gradient(180deg, transparent, var(--accent), transparent);
     animation: scanV 6s linear infinite;
+    pointer-events: none;
   }
 
   @keyframes scanV {
@@ -174,8 +168,9 @@
   }
 
   .sidebar-section {
-    padding: 16px;
+    padding: 14px 16px;
     border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
   }
 
   .sidebar-label {
@@ -187,16 +182,12 @@
     text-transform: uppercase;
   }
 
-  /* Model selector */
-  .model-select-wrapper {
-    position: relative;
-  }
+  .model-select-wrapper { position: relative; }
 
   .model-select-wrapper::before {
     content: '▸';
     position: absolute;
-    left: 10px;
-    top: 50%;
+    left: 10px; top: 50%;
     transform: translateY(-50%);
     color: var(--accent);
     font-size: 10px;
@@ -222,12 +213,6 @@
   select:focus { border-color: var(--accent); }
   select option { background: var(--bg3); }
 
-  /* URL input */
-  .url-input-wrapper {
-    position: relative;
-    margin-bottom: 8px;
-  }
-
   input[type="text"] {
     width: 100%;
     background: var(--bg3);
@@ -243,6 +228,78 @@
   }
 
   input[type="text"]:focus { border-color: var(--accent); }
+
+  .system-textarea {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--line-bright);
+    color: var(--text-bright);
+    padding: 8px 10px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    outline: none;
+    letter-spacing: 0.5px;
+    resize: none;
+    line-height: 1.5;
+    min-height: 72px;
+    max-height: 140px;
+    transition: border-color 0.2s;
+    clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+  }
+
+  .system-textarea:focus { border-color: var(--accent2); }
+  .system-textarea::placeholder { color: var(--text-dim); }
+
+  /* Temperature */
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+  }
+
+  input[type="range"] {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 2px;
+    background: var(--line-bright);
+    outline: none;
+    cursor: pointer;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 12px;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+    cursor: pointer;
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 12px; height: 12px;
+    background: var(--accent);
+    border: none;
+    cursor: pointer;
+  }
+
+  .slider-val {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    min-width: 30px;
+    text-align: right;
+  }
+
+  .slider-hints {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    color: var(--text-dim);
+  }
 
   .btn {
     display: flex;
@@ -270,30 +327,20 @@
     box-shadow: inset 0 0 20px rgba(0,212,255,0.05);
   }
 
-  .btn-accent {
-    border-color: var(--accent2);
-    color: var(--accent2);
-  }
-
+  .btn-accent { border-color: var(--accent2); color: var(--accent2); }
   .btn-accent:hover {
     background: rgba(0,255,157,0.05);
     box-shadow: inset 0 0 20px rgba(0,255,157,0.05), 0 0 10px rgba(0,255,157,0.2);
   }
 
-  .btn-danger {
-    border-color: var(--danger);
-    color: var(--danger);
-  }
+  .btn-danger { border-color: var(--danger); color: var(--danger); }
+  .btn-danger:hover { background: rgba(255,51,102,0.05); }
 
-  .btn-danger:hover {
-    background: rgba(255,51,102,0.05);
-  }
-
-  /* Conversations */
   .conversations {
     flex: 1;
     overflow-y: auto;
     padding: 8px;
+    min-height: 80px;
   }
 
   .conversations::-webkit-scrollbar { width: 3px; }
@@ -310,15 +357,8 @@
     clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
   }
 
-  .conv-item:hover {
-    border-color: var(--line-bright);
-    background: rgba(0,212,255,0.03);
-  }
-
-  .conv-item.active {
-    border-color: var(--accent);
-    background: rgba(0,212,255,0.05);
-  }
+  .conv-item:hover { border-color: var(--line-bright); background: rgba(0,212,255,0.03); }
+  .conv-item.active { border-color: var(--accent); background: rgba(0,212,255,0.05); }
 
   .conv-item.active::before {
     content: '';
@@ -336,6 +376,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     letter-spacing: 0.5px;
+    padding-right: 20px;
   }
 
   .conv-meta {
@@ -362,7 +403,6 @@
   .conv-item:hover .conv-delete { opacity: 1; }
   .conv-delete:hover { color: var(--danger); }
 
-  /* ── MAIN ── */
   .main {
     display: flex;
     flex-direction: column;
@@ -370,7 +410,6 @@
     background: var(--bg);
   }
 
-  /* Chat area */
   .chat-area {
     flex: 1;
     overflow-y: auto;
@@ -382,7 +421,6 @@
   .chat-area::-webkit-scrollbar-track { background: transparent; }
   .chat-area::-webkit-scrollbar-thumb { background: var(--line-bright); }
 
-  /* Empty state */
   .empty-state {
     display: flex;
     flex-direction: column;
@@ -393,17 +431,8 @@
     opacity: 0.4;
   }
 
-  .empty-geo {
-    position: relative;
-    width: 120px;
-    height: 120px;
-  }
-
-  .empty-geo svg {
-    width: 100%;
-    height: 100%;
-    animation: rotateSlow 20s linear infinite;
-  }
+  .empty-geo { width: 120px; height: 120px; }
+  .empty-geo svg { width: 100%; height: 100%; animation: rotateSlow 20s linear infinite; }
 
   @keyframes rotateSlow {
     from { transform: rotate(0deg); }
@@ -418,7 +447,6 @@
     text-transform: uppercase;
   }
 
-  /* Messages */
   .message {
     display: flex;
     gap: 16px;
@@ -431,23 +459,9 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
-  .message-avatar {
-    width: 32px;
-    height: 32px;
-    flex-shrink: 0;
-    position: relative;
-    margin-top: 4px;
-  }
-
-  .message-avatar svg {
-    width: 100%;
-    height: 100%;
-  }
-
-  .message-content {
-    flex: 1;
-    min-width: 0;
-  }
+  .message-avatar { width: 32px; height: 32px; flex-shrink: 0; margin-top: 4px; }
+  .message-avatar svg { width: 100%; height: 100%; }
+  .message-content { flex: 1; min-width: 0; }
 
   .message-header {
     display: flex;
@@ -490,11 +504,40 @@
     clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
   }
 
-  .message.assistant .message-body {
-    border-color: rgba(0,212,255,0.2);
+  .message.assistant .message-body { border-color: rgba(0,212,255,0.2); }
+
+  /* Message action buttons */
+  .message-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+    opacity: 0;
+    transition: opacity 0.15s;
   }
 
-  /* Thinking block */
+  .message:hover .message-actions { opacity: 1; }
+
+  .msg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    border: 1px solid var(--line-bright);
+    color: var(--text-dim);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    padding: 3px 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+    clip-path: polygon(0 0, calc(100% - 4px) 0, 100% 4px, 100% 100%, 4px 100%, 0 calc(100% - 4px));
+  }
+
+  .msg-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .msg-btn.copied { border-color: var(--accent2); color: var(--accent2); }
+  .msg-btn.regen { border-color: rgba(255,107,53,0.5); color: var(--accent3); }
+  .msg-btn.regen:hover { border-color: var(--accent3); background: rgba(255,107,53,0.05); }
+
   .thinking-block {
     background: rgba(0,255,157,0.03);
     border: 1px solid rgba(0,255,157,0.15);
@@ -505,7 +548,6 @@
     font-size: 11px;
     color: rgba(0,255,157,0.5);
     line-height: 1.6;
-    clip-path: none;
     max-height: 120px;
     overflow-y: auto;
   }
@@ -518,11 +560,9 @@
     opacity: 0.7;
   }
 
-  /* Cursor */
   .cursor {
     display: inline-block;
-    width: 8px;
-    height: 14px;
+    width: 8px; height: 14px;
     background: var(--accent);
     animation: blink 1s step-end infinite;
     vertical-align: middle;
@@ -534,7 +574,6 @@
     50% { opacity: 0; }
   }
 
-  /* Code blocks */
   .message-body pre {
     background: var(--bg);
     border: 1px solid var(--line-bright);
@@ -554,13 +593,8 @@
     padding: 1px 4px;
   }
 
-  .message-body pre code {
-    background: none;
-    padding: 0;
-    color: var(--text);
-  }
+  .message-body pre code { background: none; padding: 0; color: var(--text); }
 
-  /* ── INPUT AREA ── */
   .input-area {
     padding: 16px 24px 20px;
     border-top: 1px solid var(--line-bright);
@@ -577,22 +611,13 @@
     opacity: 0.5;
   }
 
-  .input-wrapper {
-    display: flex;
-    gap: 10px;
-    align-items: flex-end;
-  }
-
-  .input-box {
-    flex: 1;
-    position: relative;
-  }
+  .input-wrapper { display: flex; gap: 10px; align-items: flex-end; }
+  .input-box { flex: 1; position: relative; }
 
   .input-box::before {
     content: '>';
     position: absolute;
-    left: 12px;
-    bottom: 13px;
+    left: 12px; bottom: 13px;
     color: var(--accent);
     font-family: 'Share Tech Mono', monospace;
     font-size: 13px;
@@ -623,8 +648,7 @@
   textarea::placeholder { color: var(--text-dim); }
 
   .send-btn {
-    width: 48px;
-    height: 48px;
+    width: 48px; height: 48px;
     background: transparent;
     border: 1px solid var(--accent);
     color: var(--accent);
@@ -637,17 +661,8 @@
     clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
   }
 
-  .send-btn:hover {
-    background: rgba(0,212,255,0.1);
-    box-shadow: 0 0 20px rgba(0,212,255,0.2);
-  }
-
-  .send-btn:disabled {
-    border-color: var(--line-bright);
-    color: var(--text-dim);
-    cursor: not-allowed;
-  }
-
+  .send-btn:hover { background: rgba(0,212,255,0.1); box-shadow: 0 0 20px rgba(0,212,255,0.2); }
+  .send-btn:disabled { border-color: var(--line-bright); color: var(--text-dim); cursor: not-allowed; }
   .send-btn svg { width: 18px; height: 18px; }
 
   .input-meta {
@@ -660,11 +675,9 @@
     letter-spacing: 1px;
   }
 
-  /* Corner decorations */
   .corner-tl, .corner-br {
     position: fixed;
-    width: 60px;
-    height: 60px;
+    width: 60px; height: 60px;
     pointer-events: none;
     z-index: 10;
     opacity: 0.3;
@@ -673,7 +686,6 @@
   .corner-tl { top: 60px; left: 264px; }
   .corner-br { bottom: 0; right: 0; transform: rotate(180deg); }
 
-  /* Endpoint history tags */
   .endpoint-tag {
     display: inline-flex;
     align-items: center;
@@ -690,13 +702,13 @@
     max-width: 100%;
     overflow: hidden;
   }
+
   .endpoint-tag:hover { border-color: var(--accent); color: var(--accent); }
   .endpoint-tag.current { border-color: var(--accent2); color: var(--accent2); }
   .endpoint-tag-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
   .endpoint-tag-del { opacity: 0.4; font-size: 12px; flex-shrink: 0; }
   .endpoint-tag:hover .endpoint-tag-del { opacity: 1; color: var(--danger); }
 
-  /* Model tags */
   .model-tag {
     display: inline-flex;
     align-items: center;
@@ -710,17 +722,11 @@
     letter-spacing: 1px;
   }
 
-  /* Geo decorations in header */
-  .header-geo {
-    margin-left: 16px;
-    opacity: 0.3;
-  }
+  .header-geo { margin-left: 16px; opacity: 0.3; }
 
-  /* Toast */
   .toast {
     position: fixed;
-    bottom: 80px;
-    right: 24px;
+    bottom: 80px; right: 24px;
     background: var(--bg2);
     border: 1px solid var(--accent2);
     color: var(--accent2);
@@ -738,7 +744,6 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
-  /* Loading spinner */
   .loading-ring {
     width: 16px; height: 16px;
     border: 1px solid var(--line-bright);
@@ -748,15 +753,12 @@
     display: inline-block;
   }
 
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
 
 <div class="app">
-  <!-- HEADER -->
   <header>
     <div class="logo">OLLAMA</div>
     <div class="logo-slash">// NEURAL TERMINAL v1.0</div>
@@ -774,11 +776,11 @@
     </div>
   </header>
 
-  <!-- SIDEBAR -->
   <aside class="sidebar">
+    <!-- ENDPOINT -->
     <div class="sidebar-section">
       <div class="sidebar-label">// endpoint</div>
-      <div class="url-input-wrapper" style="margin-bottom:4px">
+      <div style="margin-bottom:4px">
         <input type="text" id="ollamaUrl" placeholder="http://host:11434" list="endpointHistory" autocomplete="off">
         <datalist id="endpointHistory"></datalist>
       </div>
@@ -789,15 +791,34 @@
       </button>
     </div>
 
+    <!-- MODEL -->
     <div class="sidebar-section">
       <div class="sidebar-label">// model</div>
       <div class="model-select-wrapper">
-        <select id="modelSelect">
-          <option value="">— connect first —</option>
-        </select>
+        <select id="modelSelect"><option value="">— connect first —</option></select>
       </div>
     </div>
 
+    <!-- TEMPERATURE -->
+    <div class="sidebar-section">
+      <div class="sidebar-label">// temperature</div>
+      <div class="slider-row">
+        <input type="range" id="tempSlider" min="0" max="2" step="0.05" value="0.7"
+               oninput="document.getElementById('tempVal').textContent=parseFloat(this.value).toFixed(2);saveSettings()">
+        <span class="slider-val" id="tempVal">0.70</span>
+      </div>
+      <div class="slider-hints"><span>PRECISE</span><span>CREATIVE</span></div>
+    </div>
+
+    <!-- SYSTEM PROMPT -->
+    <div class="sidebar-section">
+      <div class="sidebar-label">// system prompt</div>
+      <textarea class="system-textarea" id="systemPrompt"
+        placeholder="You are a helpful assistant..."
+        oninput="saveSettings()"></textarea>
+    </div>
+
+    <!-- SESSION CONTROLS -->
     <div class="sidebar-section" style="display:flex;gap:8px">
       <button class="btn btn-accent" style="flex:1" onclick="newConversation()">＋ NEW</button>
       <button class="btn btn-danger" style="flex:1" onclick="clearAll()">⌫ CLEAR</button>
@@ -807,37 +828,14 @@
     <div class="conversations" id="conversationList"></div>
   </aside>
 
-  <!-- MAIN -->
   <main class="main">
-    <div class="chat-area" id="chatArea">
-      <div class="empty-state" id="emptyState">
-        <div class="empty-geo">
-          <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <polygon points="60,5 115,32.5 115,87.5 60,115 5,87.5 5,32.5" stroke="#1e3a4a" stroke-width="1"/>
-            <polygon points="60,20 100,40 100,80 60,100 20,80 20,40" stroke="#2a5570" stroke-width="1"/>
-            <polygon points="60,35 85,47.5 85,72.5 60,85 35,72.5 35,47.5" stroke="#00d4ff" stroke-width="1" opacity="0.5"/>
-            <circle cx="60" cy="60" r="8" stroke="#00d4ff" stroke-width="1" opacity="0.8"/>
-            <circle cx="60" cy="60" r="3" fill="#00d4ff" opacity="0.6"/>
-            <line x1="60" y1="5" x2="60" y2="35" stroke="#00d4ff" stroke-width="0.5" opacity="0.3"/>
-            <line x1="60" y1="85" x2="60" y2="115" stroke="#00d4ff" stroke-width="0.5" opacity="0.3"/>
-            <line x1="5" y1="32.5" x2="35" y2="47.5" stroke="#00d4ff" stroke-width="0.5" opacity="0.3"/>
-            <line x1="85" y1="72.5" x2="115" y2="87.5" stroke="#00d4ff" stroke-width="0.5" opacity="0.3"/>
-          </svg>
-        </div>
-        <div class="empty-text">AWAITING INPUT</div>
-      </div>
-    </div>
+    <div class="chat-area" id="chatArea"></div>
 
     <div class="input-area">
       <div class="input-wrapper">
         <div class="input-box">
-          <textarea
-            id="messageInput"
-            placeholder="ENTER QUERY..."
-            rows="1"
-            onkeydown="handleKeydown(event)"
-            oninput="autoResize(this)"
-          ></textarea>
+          <textarea id="messageInput" placeholder="ENTER QUERY..."
+            rows="1" onkeydown="handleKeydown(event)" oninput="autoResize(this)"></textarea>
         </div>
         <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send [Enter]">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -854,7 +852,6 @@
   </main>
 </div>
 
-<!-- Corner geo decs -->
 <svg class="corner-tl" viewBox="0 0 60 60" fill="none">
   <polyline points="0,30 0,0 30,0" stroke="#00d4ff" stroke-width="1"/>
   <polyline points="10,30 10,10 30,10" stroke="#00d4ff" stroke-width="0.5"/>
@@ -876,6 +873,35 @@
 
   function getActiveConv() {
     return conversations.find(c => c.id === activeConvId);
+  }
+
+  // ── SETTINGS ──
+  function saveSettings() {
+    localStorage.setItem('ollama_settings', JSON.stringify({
+      temperature: parseFloat(document.getElementById('tempSlider').value),
+      systemPrompt: document.getElementById('systemPrompt').value
+    }));
+  }
+
+  function loadSettings() {
+    try {
+      const s = JSON.parse(localStorage.getItem('ollama_settings') || '{}');
+      if (s.temperature !== undefined) {
+        document.getElementById('tempSlider').value = s.temperature;
+        document.getElementById('tempVal').textContent = Number(s.temperature).toFixed(2);
+      }
+      if (s.systemPrompt !== undefined) {
+        document.getElementById('systemPrompt').value = s.systemPrompt;
+      }
+    } catch {}
+  }
+
+  function getTemperature() {
+    return parseFloat(document.getElementById('tempSlider').value);
+  }
+
+  function getSystemPrompt() {
+    return document.getElementById('systemPrompt').value.trim();
   }
 
   // ── ENDPOINT HISTORY ──
@@ -900,33 +926,26 @@
   function removeEndpointFromHistory(url) {
     let list = getEndpointHistory().filter(e => e !== url);
     saveEndpointHistory(list);
-    // if we removed the last-used one, clear it
-    if (localStorage.getItem('ollama_last_endpoint') === url) {
+    if (localStorage.getItem('ollama_last_endpoint') === url)
       localStorage.removeItem('ollama_last_endpoint');
-    }
     renderEndpointTags();
   }
 
   function renderEndpointTags() {
     const list = getEndpointHistory();
     const current = document.getElementById('ollamaUrl').value.trim();
-    const datalist = document.getElementById('endpointHistory');
+    document.getElementById('endpointHistory').innerHTML =
+      list.map(e => `<option value="${escapeHtml(e)}">`).join('');
+
     const container = document.getElementById('endpointTags');
+    if (!list.length) { container.innerHTML = ''; return; }
 
-    // Update datalist for native autocomplete
-    datalist.innerHTML = list.map(e => `<option value="${escapeHtml(e)}">`).join('');
-
-    if (!list.length) {
-      container.style.minHeight = '0';
-      container.innerHTML = '';
-      return;
-    }
-
-    container.style.minHeight = 'auto';
     container.innerHTML = list.map(url => `
-      <div class="endpoint-tag ${url === current ? 'current' : ''}" onclick="selectEndpoint('${escapeHtml(url)}')">
-        <span class="endpoint-tag-text">${escapeHtml(url.replace('http://', '').replace('https://', ''))}</span>
-        <span class="endpoint-tag-del" onclick="event.stopPropagation();removeEndpointFromHistory('${escapeHtml(url)}')">×</span>
+      <div class="endpoint-tag ${url === current ? 'current' : ''}"
+           data-url="${escapeHtml(url)}"
+           onclick="selectEndpoint(this.dataset.url)">
+        <span class="endpoint-tag-text">${escapeHtml(url.replace(/^https?:\/\//, ''))}</span>
+        <span class="endpoint-tag-del" onclick="event.stopPropagation();removeEndpointFromHistory(this.parentElement.dataset.url)">×</span>
       </div>
     `).join('');
   }
@@ -955,16 +974,12 @@
         ? models.map(m => `<option value="${m.name}">${m.name}</option>`).join('')
         : '<option value="">No models found</option>';
 
-      // Restore last used model for this endpoint
       const lastModel = localStorage.getItem(`ollama_model_${url}`);
-      if (lastModel && models.find(m => m.name === lastModel)) {
-        sel.value = lastModel;
-      }
+      if (lastModel && models.find(m => m.name === lastModel)) sel.value = lastModel;
 
       setStatus(true, `${models.length} MODELS`);
       showToast(`◈ ${models.length} models loaded`);
 
-      // Persist endpoint
       addEndpointToHistory(url);
       localStorage.setItem('ollama_last_endpoint', url);
       renderEndpointTags();
@@ -984,19 +999,14 @@
   }
 
   function setStatus(online, text) {
-    const dot = document.getElementById('statusDot');
-    const txt = document.getElementById('statusText');
-    dot.className = 'status-dot' + (online ? '' : ' offline');
-    txt.textContent = text;
+    document.getElementById('statusDot').className = 'status-dot' + (online ? '' : ' offline');
+    document.getElementById('statusText').textContent = text;
   }
 
   function updateModelTag(model) {
-    const tag = document.getElementById('currentModelTag');
-    const name = document.getElementById('currentModelName');
-    if (model) {
-      tag.style.display = 'inline-flex';
-      name.textContent = model;
-    }
+    if (!model) return;
+    document.getElementById('currentModelTag').style.display = 'inline-flex';
+    document.getElementById('currentModelName').textContent = model;
   }
 
   // ── CONVERSATIONS ──
@@ -1022,9 +1032,7 @@
   function deleteConversation(id, e) {
     e.stopPropagation();
     conversations = conversations.filter(c => c.id !== id);
-    if (activeConvId === id) {
-      activeConvId = conversations[0]?.id || null;
-    }
+    if (activeConvId === id) activeConvId = conversations[0]?.id || null;
     saveConversations();
     renderConversationList();
     renderMessages();
@@ -1061,7 +1069,7 @@
 
     if (!conv || !conv.messages.length) {
       area.innerHTML = `
-        <div class="empty-state" id="emptyState">
+        <div class="empty-state">
           <div class="empty-geo">
             <svg viewBox="0 0 120 120" fill="none">
               <polygon points="60,5 115,32.5 115,87.5 60,115 5,87.5 5,32.5" stroke="#1e3a4a" stroke-width="1"/>
@@ -1076,18 +1084,25 @@
       return;
     }
 
-    area.innerHTML = conv.messages.map(msg => renderMessage(msg)).join('');
+    const lastIdx = conv.messages.length - 1;
+    area.innerHTML = conv.messages.map((msg, idx) => renderMessage(msg, idx, idx === lastIdx)).join('');
     area.scrollTop = area.scrollHeight;
   }
 
-  function renderMessage(msg) {
+  function renderMessage(msg, idx, isLast) {
     const isUser = msg.role === 'user';
     const avatar = isUser ? userAvatar() : assistantAvatar();
+
     const thinking = msg.thinking ? `
       <div class="thinking-block">
         <div class="thinking-label">// CHAIN OF THOUGHT</div>
         ${escapeHtml(msg.thinking)}
       </div>` : '';
+
+    const copyBtn = `<button class="msg-btn" onclick="copyMessage(this,${idx})">⎘ COPY</button>`;
+    const regenBtn = (isLast && !isUser && msg.content)
+      ? `<button class="msg-btn regen" onclick="regenerate()">↺ REGEN</button>`
+      : '';
 
     return `
       <div class="message ${msg.role}">
@@ -1098,7 +1113,8 @@
             <span class="message-time">${formatTime(msg.time)}</span>
           </div>
           ${thinking}
-          <div class="message-body">${formatContent(msg.content)}</div>
+          <div class="message-body" id="msgbody-${idx}">${formatContent(msg.content)}</div>
+          <div class="message-actions">${copyBtn}${regenBtn}</div>
         </div>
       </div>`;
   }
@@ -1120,6 +1136,29 @@
     </svg>`;
   }
 
+  // ── COPY ──
+  function copyMessage(btn, idx) {
+    const conv = getActiveConv();
+    if (!conv || !conv.messages[idx]) return;
+    navigator.clipboard.writeText(conv.messages[idx].content).then(() => {
+      btn.textContent = '✓ COPIED';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = '⎘ COPY'; btn.classList.remove('copied'); }, 2000);
+    });
+  }
+
+  // ── REGENERATE ──
+  async function regenerate() {
+    if (isStreaming) return;
+    const conv = getActiveConv();
+    if (!conv || conv.messages.length < 2) return;
+    if (conv.messages[conv.messages.length - 1].role !== 'assistant') return;
+    conv.messages.pop();
+    saveConversations();
+    renderMessages();
+    await runAssistant(conv);
+  }
+
   // ── SEND ──
   async function sendMessage() {
     if (isStreaming) return;
@@ -1133,12 +1172,10 @@
     if (!activeConvId) newConversation();
 
     const conv = getActiveConv();
-    const userMsg = { role: 'user', content: text, time: new Date().toISOString() };
-    conv.messages.push(userMsg);
+    conv.messages.push({ role: 'user', content: text, time: new Date().toISOString() });
 
-    if (conv.title === 'NEW SESSION') {
+    if (conv.title === 'NEW SESSION')
       conv.title = text.slice(0, 40) + (text.length > 40 ? '…' : '');
-    }
 
     saveConversations();
     input.value = '';
@@ -1146,25 +1183,32 @@
     renderConversationList();
     renderMessages();
 
-    // Add streaming placeholder
-    const assistantMsg = { role: 'assistant', content: '', thinking: '', time: new Date().toISOString() };
-    conv.messages.push(assistantMsg);
+    await runAssistant(conv);
+  }
+
+  // ── CORE STREAM ──
+  async function runAssistant(conv) {
+    const model = document.getElementById('modelSelect').value;
+    const url = document.getElementById('ollamaUrl').value.trim();
+    const temperature = getTemperature();
+    const systemPrompt = getSystemPrompt();
+
+    conv.messages.push({ role: 'assistant', content: '', thinking: '', time: new Date().toISOString() });
     renderMessages();
 
     isStreaming = true;
     document.getElementById('sendBtn').disabled = true;
 
-    const url = document.getElementById('ollamaUrl').value.trim();
+    // Build messages: system prompt first if set
+    const messages = [];
+    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+    conv.messages.slice(0, -1).forEach(m => messages.push({ role: m.role, content: m.content }));
 
     try {
       const res = await fetch(`${url}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          messages: conv.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
-          stream: true
-        })
+        body: JSON.stringify({ model, messages, stream: true, options: { temperature } })
       });
 
       const reader = res.body.getReader();
@@ -1172,31 +1216,31 @@
       let fullContent = '';
       let fullThinking = '';
 
-      // Update last message live
       const updateLive = () => {
         const last = conv.messages[conv.messages.length - 1];
         last.content = fullContent;
         last.thinking = fullThinking;
+
         const area = document.getElementById('chatArea');
         const msgs = area.querySelectorAll('.message');
         const lastMsg = msgs[msgs.length - 1];
-        if (lastMsg) {
-          const body = lastMsg.querySelector('.message-body');
-          if (body) body.innerHTML = formatContent(fullContent) + '<span class="cursor"></span>';
+        if (!lastMsg) return;
 
+        const body = lastMsg.querySelector('.message-body');
+        if (body) body.innerHTML = formatContent(fullContent) + '<span class="cursor"></span>';
+
+        if (fullThinking) {
           const thinkingEl = lastMsg.querySelector('.thinking-block');
-          if (fullThinking) {
-            if (thinkingEl) {
-              thinkingEl.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div>${escapeHtml(fullThinking)}`;
-            } else {
-              const content = lastMsg.querySelector('.message-content');
-              const newThink = document.createElement('div');
-              newThink.className = 'thinking-block';
-              newThink.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div>${escapeHtml(fullThinking)}`;
-              body.parentNode.insertBefore(newThink, body);
-            }
+          if (thinkingEl) {
+            thinkingEl.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div>${escapeHtml(fullThinking)}`;
+          } else {
+            const newThink = document.createElement('div');
+            newThink.className = 'thinking-block';
+            newThink.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div>${escapeHtml(fullThinking)}`;
+            body.parentNode.insertBefore(newThink, body);
           }
         }
+
         area.scrollTop = area.scrollHeight;
         document.getElementById('tokenCount').textContent = `TOKENS: ~${Math.ceil(fullContent.length / 4)}`;
       };
@@ -1204,8 +1248,7 @@
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(l => l.trim());
+        const lines = decoder.decode(value).split('\n').filter(l => l.trim());
         for (const line of lines) {
           try {
             const data = JSON.parse(line);
@@ -1216,7 +1259,6 @@
         }
       }
 
-      // Finalize
       const last = conv.messages[conv.messages.length - 1];
       last.content = fullContent;
       last.thinking = fullThinking;
@@ -1239,10 +1281,7 @@
 
   // ── UTILS ──
   function handleKeydown(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   }
 
   function autoResize(el) {
@@ -1290,15 +1329,13 @@
   }
 
   // ── INIT ──
+  loadSettings();
   renderConversationList();
   renderMessages();
 
-  // Restore last endpoint
   const lastEndpoint = localStorage.getItem('ollama_last_endpoint') || 'http://localhost:11434';
   document.getElementById('ollamaUrl').value = lastEndpoint;
   renderEndpointTags();
-
-  // Auto-connect to last endpoint
   loadModels();
 </script>
 </body>
