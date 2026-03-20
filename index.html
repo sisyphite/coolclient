@@ -1168,10 +1168,10 @@ const PROVIDER_PRESETS = [
   { name: 'Cerebras',   url: 'https://api.cerebras.ai/v1',                               proto: 'openai', tag: 'LPU·免费'},
   { name: 'Together',   url: 'https://api.together.xyz/v1',                              proto: 'openai', tag: '$25'     },
   { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1',                             proto: 'openai', tag: '聚合'    },
-  { name: '硅基流动',   url: 'https://api.siliconflow.com/v1',                            proto: 'openai', tag: '国内免费'},
+  { name: '硅基流动',   url: 'https://api.siliconflow.cn/v1',                            proto: 'openai', tag: '国内免费'},
   { name: '火山引擎',   url: 'https://ark.cn-beijing.volces.com/api/v3',                 proto: 'openai', tag: '200万/天'},
   { name: '智谱 GLM',   url: 'https://api.z.ai/api/paas/v4',                            proto: 'openai', tag: '国内免费'},
-  { name: 'Kimi',       url: 'https://api.moonshot.ai/v1',                               proto: 'openai', tag: '长文档'  },
+  { name: 'Kimi',       url: 'https://api.moonshot.cn/v1',                               proto: 'openai', tag: '长文档'  },
   { name: 'Ollama',     url: 'http://localhost:11434',                                   proto: 'ollama', tag: '本地'    },
   { name: 'LM Studio',  url: 'http://localhost:1234/v1',                                 proto: 'openai', tag: '本地'    },
 ];
@@ -1363,6 +1363,8 @@ async function loadModels() {
   const provider = getActiveProvider();
   if (!provider) return;
 
+  document.getElementById('modelSelect').innerHTML = '<option value="">— connecting... —</option>';
+  document.getElementById('activeBadge').style.display = 'none';
   setStatus(false, 'CONNECTING...');
 
   try {
@@ -1705,6 +1707,7 @@ async function streamOpenAI(provider, model, messages, temperature, conv) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let fullRaw = '';
+  let fullReasoning = '';
   let buffer = '';
 
   while (true) {
@@ -1720,9 +1723,15 @@ async function streamOpenAI(provider, model, messages, temperature, conv) {
       if (!trimmed.startsWith('data: ')) continue;
       try {
         const data = JSON.parse(trimmed.slice(6));
-        const delta = data.choices?.[0]?.delta?.content;
-        if (delta) {
-          fullRaw += delta;
+        const delta = data.choices?.[0]?.delta;
+        if (!delta) continue;
+        // reasoning_content field (SiliconFlow / DeepSeek-R1 native etc.)
+        if (delta.reasoning_content) fullReasoning += delta.reasoning_content;
+        if (delta.content) fullRaw += delta.content;
+        // merge: reasoning_content takes priority over <think> tag parsing
+        if (fullReasoning) {
+          updateLiveMessage(conv, fullRaw, fullReasoning);
+        } else {
           const { thinking, content } = extractThinkTag(fullRaw);
           updateLiveMessage(conv, content, thinking);
         }
@@ -1730,8 +1739,14 @@ async function streamOpenAI(provider, model, messages, temperature, conv) {
     }
   }
 
-  const { thinking, content } = extractThinkTag(fullRaw);
-  finalizeMessage(conv, content, thinking);
+  let finalThinking, finalContent;
+  if (fullReasoning) {
+    finalThinking = fullReasoning;
+    finalContent = fullRaw;
+  } else {
+    ({ thinking: finalThinking, content: finalContent } = extractThinkTag(fullRaw));
+  }
+  finalizeMessage(conv, finalContent, finalThinking);
 }
 
 function extractThinkTag(raw) {
