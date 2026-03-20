@@ -1168,7 +1168,7 @@ const PROVIDER_PRESETS = [
   { name: 'Cerebras',   url: 'https://api.cerebras.ai/v1',                               proto: 'openai', tag: 'LPU·免费'},
   { name: 'Together',   url: 'https://api.together.xyz/v1',                              proto: 'openai', tag: '$25'     },
   { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1',                             proto: 'openai', tag: '聚合'    },
-  { name: '硅基流动',   url: 'https://api.siliconflow.cn/v1',                            proto: 'openai', tag: '国内免费'},
+  { name: '硅基流动',   url: 'https://api.siliconflow.ai/v1',                            proto: 'openai', tag: '国内免费'},
   { name: '火山引擎',   url: 'https://ark.cn-beijing.volces.com/api/v3',                 proto: 'openai', tag: '200万/天'},
   { name: '智谱 GLM',   url: 'https://api.z.ai/api/paas/v4',                            proto: 'openai', tag: '国内免费'},
   { name: 'Kimi',       url: 'https://api.moonshot.cn/v1',                               proto: 'openai', tag: '长文档'  },
@@ -1724,6 +1724,7 @@ async function streamOpenAI(provider, model, messages, temperature, conv) {
         const data = JSON.parse(trimmed.slice(6));
         const delta = data.choices?.[0]?.delta;
         if (!delta) continue;
+        console.log('[SSE delta]', JSON.stringify(delta));
         // reasoning_content field (SiliconFlow / DeepSeek-R1 native etc.)
         if (delta.reasoning_content) fullReasoning += delta.reasoning_content;
         if (delta.content) fullRaw += delta.content;
@@ -1731,7 +1732,7 @@ async function streamOpenAI(provider, model, messages, temperature, conv) {
         if (fullReasoning) {
           updateLiveMessage(conv, fullRaw, fullReasoning);
         } else {
-          const { thinking, content } = extractThinkTag(fullRaw);
+          const { thinking, content } = extractThinkTag(fullRaw.trimStart());
           updateLiveMessage(conv, content, thinking);
         }
       } catch {}
@@ -1743,23 +1744,30 @@ async function streamOpenAI(provider, model, messages, temperature, conv) {
     finalThinking = fullReasoning;
     finalContent = fullRaw;
   } else {
-    ({ thinking: finalThinking, content: finalContent } = extractThinkTag(fullRaw));
+    ({ thinking: finalThinking, content: finalContent } = extractThinkTag(fullRaw.trimStart()));
   }
   finalizeMessage(conv, finalContent, finalThinking);
 }
 
 function extractThinkTag(raw) {
-  const thinkMatch = raw.match(/^<think>([\s\S]*?)<\/think>\s*/);
-  if (thinkMatch) {
+  // Case 1: full <think>...</think> wrapper (Qwen3 etc.)
+  const fullMatch = raw.match(/^<think>([\s\S]*?)<\/think>\s*/);
+  if (fullMatch) {
     return {
-      thinking: thinkMatch[1].trim(),
-      content: raw.slice(thinkMatch[0].length)
+      thinking: fullMatch[1].trim(),
+      content: raw.slice(fullMatch[0].length)
     };
   }
+  // Case 2: <think> present but </think> not yet arrived — still streaming
   if (raw.startsWith('<think>') && !raw.includes('</think>')) {
+    return { thinking: raw.slice(7).trim(), content: '' };
+  }
+  // Case 3: SiliconFlow format — no opening tag, bare </think> as separator
+  const bareClose = raw.indexOf('<\/think>');
+  if (bareClose !== -1) {
     return {
-      thinking: raw.slice(7).trim(),
-      content: ''
+      thinking: raw.slice(0, bareClose).trim(),
+      content: raw.slice(bareClose + 8).trimStart()
     };
   }
   return { thinking: '', content: raw };
