@@ -958,6 +958,109 @@
   }
 
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── ADVANCED SETTINGS ── */
+  .adv-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+
+  .adv-toggle:hover .adv-arrow { color: var(--accent); }
+
+  .adv-arrow {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    transition: transform 0.2s, color 0.2s;
+  }
+
+  .adv-arrow.open { transform: rotate(90deg); color: var(--accent); }
+
+  .adv-body {
+    display: none;
+    flex-direction: column;
+    gap: 0;
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+
+  .adv-body.open { display: flex; }
+
+  .adv-row {
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(30,58,74,0.5);
+  }
+
+  .adv-row:last-child { border-bottom: none; }
+
+  .adv-row-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .adv-val {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+  }
+
+  .adv-hint {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 8px;
+    color: var(--text-dim);
+    opacity: 0.5;
+    margin-top: 3px;
+    letter-spacing: 0.5px;
+  }
+
+  input[type="number"].adv-input {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--line-bright);
+    color: var(--text-bright);
+    padding: 5px 8px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    outline: none;
+    letter-spacing: 1px;
+    transition: border-color 0.2s;
+    clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px));
+  }
+
+  input[type="number"].adv-input:focus { border-color: var(--accent); }
+  input[type="number"].adv-input::-webkit-inner-spin-button { opacity: 0.3; }
+
+  /* ── STOP BUTTON ── */
+  .stop-btn {
+    width: 48px; height: 48px;
+    background: transparent;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+  }
+
+  .stop-btn:hover { background: rgba(255,51,102,0.1); box-shadow: 0 0 20px rgba(255,51,102,0.2); }
+  .stop-btn.visible { display: flex; }
+  .stop-btn svg { width: 16px; height: 16px; }
+
 </style>
 </head>
 <body>
@@ -1064,20 +1167,47 @@
     </div>
 
     <div class="sidebar-section">
-      <div class="sidebar-label">// temperature</div>
-      <div class="slider-row">
-        <input type="range" id="tempSlider" min="0" max="2" step="0.05" value="0.7"
-               oninput="document.getElementById('tempVal').textContent=parseFloat(this.value).toFixed(2);saveSettings()">
-        <span class="slider-val" id="tempVal">0.70</span>
-      </div>
-      <div class="slider-hints"><span>PRECISE</span><span>CREATIVE</span></div>
-    </div>
-
-    <div class="sidebar-section">
       <div class="sidebar-label">// system prompt</div>
       <textarea class="system-textarea" id="systemPrompt"
         placeholder="You are a helpful assistant..."
         oninput="saveSettings()"></textarea>
+    </div>
+
+    <!-- ── ADVANCED SETTINGS ── -->
+    <div class="adv-toggle" onclick="toggleAdv()">
+      <span class="sidebar-label" style="margin:0;border:none;padding:0">// advanced</span>
+      <span class="adv-arrow" id="advArrow">▸</span>
+    </div>
+    <div class="adv-body" id="advBody">
+      <div class="adv-row">
+        <div class="adv-row-label">
+          TEMPERATURE
+          <span class="adv-val" id="tempVal">0.70</span>
+        </div>
+        <div class="slider-row" style="margin-top:0">
+          <input type="range" id="tempSlider" min="0" max="2" step="0.05" value="0.7"
+                 oninput="document.getElementById('tempVal').textContent=parseFloat(this.value).toFixed(2);saveSettings()">
+        </div>
+        <div class="slider-hints"><span>PRECISE</span><span>CREATIVE</span></div>
+        <div class="adv-hint">AFFECTS RANDOMNESS · DEFAULT 0.7</div>
+      </div>
+      <div class="adv-row">
+        <div class="adv-row-label">
+          TOP P
+          <span class="adv-val" id="topPVal">1.00</span>
+        </div>
+        <div class="slider-row" style="margin-top:0">
+          <input type="range" id="topPSlider" min="0" max="1" step="0.05" value="1"
+                 oninput="document.getElementById('topPVal').textContent=parseFloat(this.value).toFixed(2);saveSettings()">
+        </div>
+        <div class="adv-hint">NUCLEUS SAMPLING · DEFAULT 1.0</div>
+      </div>
+      <div class="adv-row">
+        <div class="adv-row-label">MAX TOKENS</div>
+        <input type="number" class="adv-input" id="maxTokens" min="1" max="32768"
+               placeholder="model default" oninput="saveSettings()">
+        <div class="adv-hint">LEAVE BLANK FOR MODEL DEFAULT</div>
+      </div>
     </div>
 
     <div class="sidebar-section" style="display:flex;gap:8px">
@@ -1101,6 +1231,11 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="22" y1="2" x2="11" y2="13"/>
             <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+        <button class="stop-btn" id="stopBtn" onclick="stopStreaming()" title="Stop generation">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <rect x="4" y="4" width="16" height="16" rx="2"/>
           </svg>
         </button>
       </div>
@@ -1168,8 +1303,8 @@ const PROVIDER_PRESETS = [
   { name: 'Cerebras',   url: 'https://api.cerebras.ai/v1',                               proto: 'openai', tag: 'LPU·免费'},
   { name: 'Together',   url: 'https://api.together.xyz/v1',                              proto: 'openai', tag: '$25'     },
   { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1',                             proto: 'openai', tag: '聚合'    },
-  { name: '硅基流动',   url: 'https://api.siliconflow.ai/v1',                            proto: 'openai', tag: '国内免费'},
-  { name: '火山引擎',   url: 'https://ark.cn-beijing.volces.com/api/v3',                 proto: 'openai', tag: '200万/天'},
+  { name: '硅基流动',   url: 'https://api.siliconflow.ai/v1',                            proto: 'openai', tag: '模型多'},
+  { name: '火山引擎',   url: 'https://ark.cn-beijing.volces.com/api/v3',                 proto: 'openai', tag: '字节跳动'},
   { name: '智谱 GLM',   url: 'https://api.z.ai/api/paas/v4',                            proto: 'openai', tag: '国内免费'},
   { name: 'Kimi',       url: 'https://api.moonshot.cn/v1',                               proto: 'openai', tag: '长文档'  },
   { name: 'Ollama',     url: 'http://localhost:11434',                                   proto: 'ollama', tag: '本地'    },
@@ -1209,14 +1344,28 @@ let activeConvId = null;
 let isStreaming = false;
 let editingProviderId = null;
 let selectedProto = 'ollama';
+let abortController = null;
+
+function setSendState(streaming) {
+  isStreaming = streaming;
+  document.getElementById('sendBtn').disabled = streaming;
+  document.getElementById('stopBtn').classList.toggle('visible', streaming);
+}
+
+function stopStreaming() {
+  if (abortController) { abortController.abort(); abortController = null; }
+}
 
 function getActiveProvider() {
   return providers.find(p => p.id === activeProviderId) || null;
 }
 
 function saveSettings() {
+  const maxT = document.getElementById('maxTokens').value;
   localStorage.setItem('llm_settings', JSON.stringify({
     temperature: parseFloat(document.getElementById('tempSlider').value),
+    topP: parseFloat(document.getElementById('topPSlider').value),
+    maxTokens: maxT ? parseInt(maxT) : null,
     systemPrompt: document.getElementById('systemPrompt').value
   }));
 }
@@ -1228,8 +1377,20 @@ function loadSettings() {
       document.getElementById('tempSlider').value = s.temperature;
       document.getElementById('tempVal').textContent = Number(s.temperature).toFixed(2);
     }
+    if (s.topP !== undefined) {
+      document.getElementById('topPSlider').value = s.topP;
+      document.getElementById('topPVal').textContent = Number(s.topP).toFixed(2);
+    }
+    if (s.maxTokens) document.getElementById('maxTokens').value = s.maxTokens;
     if (s.systemPrompt) document.getElementById('systemPrompt').value = s.systemPrompt;
   } catch {}
+}
+
+function toggleAdv() {
+  const body = document.getElementById('advBody');
+  const arrow = document.getElementById('advArrow');
+  body.classList.toggle('open');
+  arrow.classList.toggle('open');
 }
 
 function openModal(providerId = null) {
@@ -1622,44 +1783,67 @@ async function runAssistant(conv) {
   const provider = getActiveProvider();
   const model = document.getElementById('modelSelect').value;
   const temperature = parseFloat(document.getElementById('tempSlider').value);
+  const topP = parseFloat(document.getElementById('topPSlider').value);
+  const maxTokensRaw = document.getElementById('maxTokens').value;
+  const maxTokens = maxTokensRaw ? parseInt(maxTokensRaw) : null;
   const systemPrompt = document.getElementById('systemPrompt').value.trim();
 
   conv.messages.push({ role: 'assistant', content: '', thinking: '', time: new Date().toISOString() });
   renderMessages();
 
-  isStreaming = true;
-  document.getElementById('sendBtn').disabled = true;
+  abortController = new AbortController();
+  setSendState(true);
 
   const messages = [];
   if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
   conv.messages.slice(0, -1).forEach(m => messages.push({ role: m.role, content: m.content }));
 
+  const params = { temperature, topP, maxTokens, signal: abortController.signal };
+
   try {
     if (provider.proto === 'ollama') {
-      await streamOllama(provider, model, messages, temperature, conv);
+      await streamOllama(provider, model, messages, params, conv);
     } else {
-      await streamOpenAI(provider, model, messages, temperature, conv);
+      await streamOpenAI(provider, model, messages, params, conv);
     }
   } catch (e) {
-    const last = conv.messages[conv.messages.length - 1];
-    last.content = '✕ ERROR: ' + e.message;
-    saveConversations();
-    renderMessages();
-    showToast('✕ ' + e.message, true);
+    if (e.name === 'AbortError') {
+      // user stopped — finalize whatever we have
+      const last = conv.messages[conv.messages.length - 1];
+      if (!last.content && !last.thinking) last.content = '⊘ STOPPED';
+      saveConversations();
+      renderMessages();
+      showToast('⊘ STOPPED');
+    } else {
+      const last = conv.messages[conv.messages.length - 1];
+      last.content = '✕ ERROR: ' + e.message;
+      saveConversations();
+      renderMessages();
+      showToast('✕ ' + e.message, true);
+    }
   } finally {
-    isStreaming = false;
-    document.getElementById('sendBtn').disabled = false;
+    abortController = null;
+    setSendState(false);
+    setTimeout(() => {
+      if (!isStreaming) document.getElementById('tokenCount').textContent = 'TOKENS: —';
+    }, 5000);
   }
 }
 
-async function streamOllama(provider, model, messages, temperature, conv) {
+async function streamOllama(provider, model, messages, params, conv) {
+  const { temperature, topP, maxTokens, signal } = params;
+  const options = { temperature };
+  if (topP < 1) options.top_p = topP;
+  if (maxTokens) options.num_predict = maxTokens;
+
   const res = await fetch(`${provider.url}/api/chat`, {
     method: 'POST',
+    signal,
     headers: {
       'Content-Type': 'application/json',
       ...(provider.key ? { 'Authorization': `Bearer ${provider.key}` } : {})
     },
-    body: JSON.stringify({ model, messages, stream: true, options: { temperature } })
+    body: JSON.stringify({ model, messages, stream: true, options })
   });
 
   if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -1668,34 +1852,43 @@ async function streamOllama(provider, model, messages, temperature, conv) {
   const decoder = new TextDecoder();
   let fullContent = '', fullThinking = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const lines = decoder.decode(value).split('\n').filter(l => l.trim());
-    for (const line of lines) {
-      try {
-        const data = JSON.parse(line);
-        if (data.message?.content) fullContent += data.message.content;
-        if (data.message?.thinking) fullThinking += data.message.thinking;
-        updateLiveMessage(conv, fullContent, fullThinking);
-      } catch {}
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const lines = decoder.decode(value).split('\n').filter(l => l.trim());
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line);
+          if (data.message?.content) fullContent += data.message.content;
+          if (data.message?.thinking) fullThinking += data.message.thinking;
+          updateLiveMessage(conv, fullContent, fullThinking);
+        } catch {}
+      }
     }
+  } finally {
+    reader.cancel();
   }
 
   finalizeMessage(conv, fullContent, fullThinking);
 }
 
-async function streamOpenAI(provider, model, messages, temperature, conv) {
+async function streamOpenAI(provider, model, messages, params, conv) {
+  const { temperature, topP, maxTokens, signal } = params;
   const chatUrl = provider.url.endsWith('/v1') || provider.url.match(/\/v\d+$/)
     ? `${provider.url}/chat/completions`
     : `${provider.url}/v1/chat/completions`;
+  const body = { model, messages, stream: true, temperature };
+  if (topP < 1) body.top_p = topP;
+  if (maxTokens) body.max_tokens = maxTokens;
   const res = await fetch(chatUrl, {
     method: 'POST',
+    signal,
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${provider.key || 'none'}`
     },
-    body: JSON.stringify({ model, messages, stream: true, temperature })
+    body: JSON.stringify(body)
   });
 
   if (!res.ok) {
@@ -1709,6 +1902,7 @@ async function streamOpenAI(provider, model, messages, temperature, conv) {
   let fullReasoning = '';
   let buffer = '';
 
+  try {
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -1740,6 +1934,10 @@ async function streamOpenAI(provider, model, messages, temperature, conv) {
   }
 
   let finalThinking, finalContent;
+  } finally {
+    reader.cancel();
+  }
+
   if (fullReasoning) {
     finalThinking = fullReasoning;
     finalContent = fullRaw;
