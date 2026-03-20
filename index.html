@@ -1126,7 +1126,7 @@ const PROVIDER_PRESETS = [
   { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1',                             proto: 'openai', tag: '聚合'    },
   { name: '硅基流动',   url: 'https://api.siliconflow.cn/v1',                            proto: 'openai', tag: '国内免费'},
   { name: '火山引擎',   url: 'https://ark.cn-beijing.volces.com/api/v3',                 proto: 'openai', tag: '200万/天'},
-  { name: '智谱 GLM',   url: 'https://open.bigmodel.cn/api/paas/v4',                    proto: 'openai', tag: '国内免费'},
+  { name: '智谱 GLM',   url: 'https://api.z.ai/api/paas/v4',                    proto: 'openai', tag: '国内免费'},
   { name: 'Kimi',       url: 'https://api.moonshot.cn/v1',                               proto: 'openai', tag: '长文档'  },
   { name: 'Ollama',     url: 'http://localhost:11434',                                   proto: 'ollama', tag: '本地'    },
   { name: 'LM Studio',  url: 'http://localhost:1234/v1',                                 proto: 'openai', tag: '本地'    },
@@ -1331,7 +1331,10 @@ async function loadModels() {
       models = (data.models || []).map(m => m.name);
 
     } else {
-      const res = await fetch(`${provider.url}/v1/models`, {
+      const modelsUrl = provider.url.endsWith('/v1') || provider.url.match(/\/v\d+$/)
+        ? `${provider.url}/models`
+        : `${provider.url}/v1/models`;
+      const res = await fetch(modelsUrl, {
         headers: {
           'Authorization': `Bearer ${provider.key || 'none'}`,
           'Content-Type': 'application/json'
@@ -1631,7 +1634,10 @@ async function streamOllama(provider, model, messages, temperature, conv) {
 }
 
 async function streamOpenAI(provider, model, messages, temperature, conv) {
-  const res = await fetch(`${provider.url}/v1/chat/completions`, {
+  const chatUrl = provider.url.endsWith('/v1') || provider.url.match(/\/v\d+$/)
+  ? `${provider.url}/chat/completions`
+  : `${provider.url}/v1/chat/completions`;
+  const res = await fetch(chatUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
