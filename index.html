@@ -962,6 +962,23 @@
 </head>
 <body>
 
+<!-- ── CONFIRM MODAL ── -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal" style="width:360px">
+    <div class="modal-header">
+      <span class="modal-title" style="color:var(--danger)">⚠ CONFIRM</span>
+      <button class="modal-close" id="confirmCancel">×</button>
+    </div>
+    <div class="modal-body" style="gap:8px">
+      <div id="confirmMsg" style="font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--text);letter-spacing:1px;line-height:1.7"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="confirmNo">CANCEL</button>
+      <button class="btn btn-danger" id="confirmYes">CONFIRM</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── PROVIDER MODAL ── -->
 <div class="modal-overlay" id="providerModal">
   <div class="modal">
@@ -971,7 +988,7 @@
     </div>
     <div class="modal-body">
 
-      <!-- ★ NEW: PRESETS -->
+      <!-- PRESETS -->
       <div>
         <div class="field-label">Quick Select <span style="opacity:0.4;font-size:9px">(AUTO-FILL)</span></div>
         <div class="preset-grid" id="presetGrid"></div>
@@ -1105,6 +1122,33 @@
 </svg>
 
 <script>
+// ── CUSTOM CONFIRM ──
+function showConfirm(msg) {
+  return new Promise(resolve => {
+    document.getElementById('confirmMsg').textContent = msg;
+    const overlay = document.getElementById('confirmModal');
+    overlay.classList.add('open');
+
+    function cleanup(result) {
+      overlay.classList.remove('open');
+      document.getElementById('confirmYes').removeEventListener('click', onYes);
+      document.getElementById('confirmNo').removeEventListener('click', onNo);
+      document.getElementById('confirmCancel').removeEventListener('click', onNo);
+      overlay.removeEventListener('click', onOverlay);
+      resolve(result);
+    }
+
+    function onYes() { cleanup(true); }
+    function onNo() { cleanup(false); }
+    function onOverlay(e) { if (e.target === overlay) cleanup(false); }
+
+    document.getElementById('confirmYes').addEventListener('click', onYes);
+    document.getElementById('confirmNo').addEventListener('click', onNo);
+    document.getElementById('confirmCancel').addEventListener('click', onNo);
+    overlay.addEventListener('click', onOverlay);
+  });
+}
+
 // ── PROVIDER COLORS ──
 const PROTO_COLORS = {
   ollama: '#00d4ff',
@@ -1116,7 +1160,7 @@ const PROTO_HINTS = {
   openai: 'OpenAI-compatible /v1/chat/completions — Groq, Together, etc.'
 };
 
-// ── PROVIDER PRESETS ── ★ NEW
+// ── PROVIDER PRESETS ──
 const PROVIDER_PRESETS = [
   { name: 'Groq',       url: 'https://api.groq.com/openai',                              proto: 'openai', tag: 'FREE·快' },
   { name: 'Mistral',    url: 'https://api.mistral.ai/v1',                                proto: 'openai', tag: 'FREE·EU' },
@@ -1126,7 +1170,7 @@ const PROVIDER_PRESETS = [
   { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1',                             proto: 'openai', tag: '聚合'    },
   { name: '硅基流动',   url: 'https://api.siliconflow.cn/v1',                            proto: 'openai', tag: '国内免费'},
   { name: '火山引擎',   url: 'https://ark.cn-beijing.volces.com/api/v3',                 proto: 'openai', tag: '200万/天'},
-  { name: '智谱 GLM',   url: 'https://api.z.ai/api/paas/v4',                    proto: 'openai', tag: '国内免费'},
+  { name: '智谱 GLM',   url: 'https://api.z.ai/api/paas/v4',                            proto: 'openai', tag: '国内免费'},
   { name: 'Kimi',       url: 'https://api.moonshot.cn/v1',                               proto: 'openai', tag: '长文档'  },
   { name: 'Ollama',     url: 'http://localhost:11434',                                   proto: 'ollama', tag: '本地'    },
   { name: 'LM Studio',  url: 'http://localhost:1234/v1',                                 proto: 'openai', tag: '本地'    },
@@ -1148,7 +1192,6 @@ function applyPreset(idx) {
   document.getElementById('providerName').value = p.name;
   document.getElementById('providerUrl').value = p.url;
   selectProto(p.proto);
-  // Highlight the chip briefly
   const chips = document.querySelectorAll('.preset-chip');
   chips.forEach(c => c.style.borderColor = '');
   if (chips[idx]) {
@@ -1209,7 +1252,7 @@ function openModal(providerId = null) {
     selectProto('ollama');
   }
 
-  renderPresetGrid(); // ★ render presets each time modal opens
+  renderPresetGrid();
   modal.classList.add('open');
   document.getElementById('providerName').focus();
 }
@@ -1265,9 +1308,12 @@ function saveProvider() {
   }
 }
 
-function deleteProvider(id, e) {
+async function deleteProvider(id, e) {
   e.stopPropagation();
-  if (!confirm('Delete this provider?')) return;
+  const p = providers.find(x => x.id === id);
+  const confirmed = await showConfirm(`DELETE PROVIDER\n"${p?.name || id}"?`);
+  if (!confirmed) return;
+
   providers = providers.filter(p => p.id !== id);
   localStorage.setItem('llm_providers', JSON.stringify(providers));
   if (activeProviderId === id) {
@@ -1416,8 +1462,12 @@ function selectConversation(id) {
   renderMessages();
 }
 
-function deleteConversation(id, e) {
+async function deleteConversation(id, e) {
   e.stopPropagation();
+  const conv = conversations.find(c => c.id === id);
+  const confirmed = await showConfirm(`DELETE SESSION\n"${conv?.title || 'this session'}"?`);
+  if (!confirmed) return;
+
   conversations = conversations.filter(c => c.id !== id);
   if (activeConvId === id) activeConvId = conversations[0]?.id || null;
   saveConversations();
@@ -1425,8 +1475,9 @@ function deleteConversation(id, e) {
   renderMessages();
 }
 
-function clearAll() {
-  if (!confirm('Clear all sessions?')) return;
+async function clearAll() {
+  const confirmed = await showConfirm('CLEAR ALL SESSIONS?\nThis cannot be undone.');
+  if (!confirmed) return;
   conversations = [];
   activeConvId = null;
   saveConversations();
@@ -1635,8 +1686,8 @@ async function streamOllama(provider, model, messages, temperature, conv) {
 
 async function streamOpenAI(provider, model, messages, temperature, conv) {
   const chatUrl = provider.url.endsWith('/v1') || provider.url.match(/\/v\d+$/)
-  ? `${provider.url}/chat/completions`
-  : `${provider.url}/v1/chat/completions`;
+    ? `${provider.url}/chat/completions`
+    : `${provider.url}/v1/chat/completions`;
   const res = await fetch(chatUrl, {
     method: 'POST',
     headers: {
