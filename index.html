@@ -1649,7 +1649,6 @@ async function runAssistant(conv) {
   } finally {
     isStreaming = false;
     document.getElementById('sendBtn').disabled = false;
-    document.getElementById('tokenCount').textContent = 'TOKENS: —';
   }
 }
 
@@ -1792,7 +1791,7 @@ function updateLiveMessage(conv, content, thinking) {
   }
 
   area.scrollTop = area.scrollHeight;
-  document.getElementById('tokenCount').textContent = `TOKENS: ~${Math.ceil(content.length / 4)}`;
+  document.getElementById('tokenCount').textContent = `TOKENS: ~${Math.ceil((content.length + (thinking?.length || 0)) / 4)}`;
 }
 
 function finalizeMessage(conv, content, thinking) {
