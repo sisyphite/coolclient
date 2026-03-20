@@ -69,7 +69,6 @@
     z-index: 2;
   }
 
-  /* ── HEADER ── */
   header {
     grid-column: 1 / -1;
     display: flex;
@@ -157,7 +156,6 @@
     padding-left: 6px;
   }
 
-  /* ── SIDEBAR ── */
   .sidebar {
     background: var(--bg2);
     border-right: 1px solid var(--line-bright);
@@ -216,7 +214,6 @@
 
   .sidebar-label-btn:hover { border-color: var(--accent2); color: var(--accent2); }
 
-  /* Provider list */
   .provider-list {
     display: flex;
     flex-direction: column;
@@ -302,7 +299,68 @@
   .icon-btn:hover { color: var(--accent); }
   .icon-btn.del:hover { color: var(--danger); }
 
-  /* Modal */
+  /* ── PRESETS ── */
+  .preset-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+    margin-bottom: 4px;
+  }
+
+  .preset-chip {
+    padding: 6px 4px;
+    border: 1px solid var(--line-bright);
+    background: var(--bg3);
+    color: var(--text-dim);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s;
+    clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px));
+    line-height: 1.4;
+  }
+
+  .preset-chip:hover {
+    border-color: var(--accent2);
+    color: var(--accent2);
+    background: rgba(0,255,157,0.05);
+  }
+
+  .preset-chip .chip-name {
+    display: block;
+    color: var(--text-bright);
+    font-size: 10px;
+    margin-bottom: 2px;
+  }
+
+  .preset-chip .chip-tag {
+    display: inline-block;
+    font-size: 8px;
+    opacity: 0.6;
+    letter-spacing: 1px;
+  }
+
+  .preset-sep {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0 2px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+  }
+
+  .preset-sep::before, .preset-sep::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+
+  /* ── MODAL ── */
   .modal-overlay {
     display: none;
     position: fixed;
@@ -318,7 +376,7 @@
   .modal {
     background: var(--bg2);
     border: 1px solid var(--line-bright);
-    width: 420px;
+    width: 460px;
     max-width: 90vw;
     position: relative;
     animation: modalIn 0.2s ease;
@@ -427,7 +485,6 @@
     justify-content: flex-end;
   }
 
-  /* Inputs */
   select {
     width: 100%;
     background: var(--bg3);
@@ -556,7 +613,6 @@
   .btn-danger { border-color: var(--danger); color: var(--danger); }
   .btn-danger:hover { background: rgba(255,51,102,0.05); }
 
-  /* Conversations */
   .conversations { flex: 1; overflow-y: auto; padding: 8px; min-height: 60px; }
   .conversations::-webkit-scrollbar { width: 3px; }
   .conversations::-webkit-scrollbar-track { background: transparent; }
@@ -617,7 +673,6 @@
   .conv-item:hover .conv-delete { opacity: 1; }
   .conv-delete:hover { color: var(--danger); }
 
-  /* ── MAIN ── */
   .main { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
 
   .chat-area { flex: 1; overflow-y: auto; padding: 24px; scroll-behavior: smooth; }
@@ -785,7 +840,6 @@
 
   .message-body pre code { background: none; padding: 0; color: var(--text); }
 
-  /* ── INPUT ── */
   .input-area {
     padding: 16px 24px 20px;
     border-top: 1px solid var(--line-bright);
@@ -916,6 +970,14 @@
       <button class="modal-close" onclick="closeModal()">×</button>
     </div>
     <div class="modal-body">
+
+      <!-- ★ NEW: PRESETS -->
+      <div>
+        <div class="field-label">Quick Select <span style="opacity:0.4;font-size:9px">(AUTO-FILL)</span></div>
+        <div class="preset-grid" id="presetGrid"></div>
+        <div class="preset-sep">OR ENTER MANUALLY</div>
+      </div>
+
       <div>
         <div class="field-label">Name</div>
         <input type="text" id="providerName" placeholder="My Ollama / Groq / Together...">
@@ -950,7 +1012,6 @@
 </div>
 
 <div class="app">
-  <!-- HEADER -->
   <header>
     <div class="logo">LLM</div>
     <div class="logo-slash">// NEURAL TERMINAL v2.0</div>
@@ -969,10 +1030,7 @@
     </div>
   </header>
 
-  <!-- SIDEBAR -->
   <aside class="sidebar">
-
-    <!-- PROVIDERS -->
     <div class="sidebar-section">
       <div class="sidebar-label">
         // providers
@@ -981,7 +1039,6 @@
       <div class="provider-list" id="providerList"></div>
     </div>
 
-    <!-- MODEL -->
     <div class="sidebar-section">
       <div class="sidebar-label">// model</div>
       <div class="model-select-wrapper">
@@ -989,7 +1046,6 @@
       </div>
     </div>
 
-    <!-- TEMPERATURE -->
     <div class="sidebar-section">
       <div class="sidebar-label">// temperature</div>
       <div class="slider-row">
@@ -1000,7 +1056,6 @@
       <div class="slider-hints"><span>PRECISE</span><span>CREATIVE</span></div>
     </div>
 
-    <!-- SYSTEM PROMPT -->
     <div class="sidebar-section">
       <div class="sidebar-label">// system prompt</div>
       <textarea class="system-textarea" id="systemPrompt"
@@ -1008,7 +1063,6 @@
         oninput="saveSettings()"></textarea>
     </div>
 
-    <!-- SESSION CONTROLS -->
     <div class="sidebar-section" style="display:flex;gap:8px">
       <button class="btn btn-accent btn-full" style="flex:1" onclick="newConversation()">＋ NEW</button>
       <button class="btn btn-danger btn-full" style="flex:1" onclick="clearAll()">⌫ CLEAR</button>
@@ -1018,7 +1072,6 @@
     <div class="conversations" id="conversationList"></div>
   </aside>
 
-  <!-- MAIN -->
   <main class="main">
     <div class="chat-area" id="chatArea"></div>
     <div class="input-area">
@@ -1063,6 +1116,48 @@ const PROTO_HINTS = {
   openai: 'OpenAI-compatible /v1/chat/completions — Groq, Together, etc.'
 };
 
+// ── PROVIDER PRESETS ── ★ NEW
+const PROVIDER_PRESETS = [
+  { name: 'Groq',       url: 'https://api.groq.com/openai',                              proto: 'openai', tag: 'FREE·快' },
+  { name: 'Mistral',    url: 'https://api.mistral.ai/v1',                                proto: 'openai', tag: 'FREE·EU' },
+  { name: 'Google AI',  url: 'https://generativelanguage.googleapis.com/v1beta/openai',  proto: 'openai', tag: 'Gemini'  },
+  { name: 'Cerebras',   url: 'https://api.cerebras.ai/v1',                               proto: 'openai', tag: 'LPU·免费'},
+  { name: 'Together',   url: 'https://api.together.xyz/v1',                              proto: 'openai', tag: '$25'     },
+  { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1',                             proto: 'openai', tag: '聚合'    },
+  { name: '硅基流动',   url: 'https://api.siliconflow.cn/v1',                            proto: 'openai', tag: '国内免费'},
+  { name: '火山引擎',   url: 'https://ark.cn-beijing.volces.com/api/v3',                 proto: 'openai', tag: '200万/天'},
+  { name: '智谱 GLM',   url: 'https://open.bigmodel.cn/api/paas/v4',                    proto: 'openai', tag: '国内免费'},
+  { name: 'Kimi',       url: 'https://api.moonshot.cn/v1',                               proto: 'openai', tag: '长文档'  },
+  { name: 'Ollama',     url: 'http://localhost:11434',                                   proto: 'ollama', tag: '本地'    },
+  { name: 'LM Studio',  url: 'http://localhost:1234/v1',                                 proto: 'openai', tag: '本地'    },
+];
+
+function renderPresetGrid() {
+  const grid = document.getElementById('presetGrid');
+  if (!grid) return;
+  grid.innerHTML = PROVIDER_PRESETS.map((p, i) => `
+    <div class="preset-chip" onclick="applyPreset(${i})" title="${p.url}">
+      <span class="chip-name">${escapeHtml(p.name)}</span>
+      <span class="chip-tag">${p.tag}</span>
+    </div>
+  `).join('');
+}
+
+function applyPreset(idx) {
+  const p = PROVIDER_PRESETS[idx];
+  document.getElementById('providerName').value = p.name;
+  document.getElementById('providerUrl').value = p.url;
+  selectProto(p.proto);
+  // Highlight the chip briefly
+  const chips = document.querySelectorAll('.preset-chip');
+  chips.forEach(c => c.style.borderColor = '');
+  if (chips[idx]) {
+    chips[idx].style.borderColor = 'var(--accent2)';
+    chips[idx].style.color = 'var(--accent2)';
+  }
+  document.getElementById('providerKey').focus();
+}
+
 // ── STATE ──
 let providers = JSON.parse(localStorage.getItem('llm_providers') || '[]');
 let activeProviderId = localStorage.getItem('llm_active_provider') || null;
@@ -1076,7 +1171,6 @@ function getActiveProvider() {
   return providers.find(p => p.id === activeProviderId) || null;
 }
 
-// ── SETTINGS ──
 function saveSettings() {
   localStorage.setItem('llm_settings', JSON.stringify({
     temperature: parseFloat(document.getElementById('tempSlider').value),
@@ -1095,7 +1189,6 @@ function loadSettings() {
   } catch {}
 }
 
-// ── MODAL ──
 function openModal(providerId = null) {
   editingProviderId = providerId;
   const modal = document.getElementById('providerModal');
@@ -1116,6 +1209,7 @@ function openModal(providerId = null) {
     selectProto('ollama');
   }
 
+  renderPresetGrid(); // ★ render presets each time modal opens
   modal.classList.add('open');
   document.getElementById('providerName').focus();
 }
@@ -1132,7 +1226,6 @@ function selectProto(proto) {
   });
   document.getElementById('protoHint').textContent = PROTO_HINTS[proto];
 
-  // Auto-fill URL hint
   const urlInput = document.getElementById('providerUrl');
   if (!urlInput.value) {
     urlInput.placeholder = proto === 'ollama'
@@ -1167,7 +1260,6 @@ function saveProvider() {
   closeModal();
   renderProviderList();
 
-  // Auto-select if first provider
   if (providers.length === 1) {
     activateProvider(providers[0].id);
   }
@@ -1221,7 +1313,6 @@ function renderProviderList() {
   `).join('');
 }
 
-// ── LOAD MODELS ──
 async function loadModels() {
   const provider = getActiveProvider();
   if (!provider) return;
@@ -1240,7 +1331,6 @@ async function loadModels() {
       models = (data.models || []).map(m => m.name);
 
     } else {
-      // OpenAI-compat /v1/models
       const res = await fetch(`${provider.url}/v1/models`, {
         headers: {
           'Authorization': `Bearer ${provider.key || 'none'}`,
@@ -1257,7 +1347,6 @@ async function loadModels() {
       ? models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('')
       : '<option value="">No models found</option>';
 
-    // Restore last used model
     if (provider.lastModel && models.includes(provider.lastModel)) {
       sel.value = provider.lastModel;
     }
@@ -1297,7 +1386,6 @@ function updateBadge() {
   document.getElementById('badgeProto').textContent = p.proto.toUpperCase();
 }
 
-// ── CONVERSATIONS ──
 function saveConversations() {
   localStorage.setItem('llm_convs', JSON.stringify(conversations));
 }
@@ -1358,7 +1446,6 @@ function renderConversationList() {
   `).join('');
 }
 
-// ── MESSAGES ──
 function renderMessages() {
   const area = document.getElementById('chatArea');
   const conv = getActiveConv();
@@ -1446,7 +1533,6 @@ async function regenerate() {
   await runAssistant(conv);
 }
 
-// ── SEND ──
 async function sendMessage() {
   if (isStreaming) return;
   const input = document.getElementById('messageInput');
@@ -1476,7 +1562,6 @@ async function sendMessage() {
   await runAssistant(conv);
 }
 
-// ── CORE STREAM ──
 async function runAssistant(conv) {
   const provider = getActiveProvider();
   const model = document.getElementById('modelSelect').value;
@@ -1512,7 +1597,6 @@ async function runAssistant(conv) {
   }
 }
 
-// ── OLLAMA STREAM ──
 async function streamOllama(provider, model, messages, temperature, conv) {
   const res = await fetch(`${provider.url}/api/chat`, {
     method: 'POST',
@@ -1546,7 +1630,6 @@ async function streamOllama(provider, model, messages, temperature, conv) {
   finalizeMessage(conv, fullContent, fullThinking);
 }
 
-// ── OPENAI-COMPAT STREAM ──
 async function streamOpenAI(provider, model, messages, temperature, conv) {
   const res = await fetch(`${provider.url}/v1/chat/completions`, {
     method: 'POST',
@@ -1594,7 +1677,6 @@ async function streamOpenAI(provider, model, messages, temperature, conv) {
   finalizeMessage(conv, content, thinking);
 }
 
-// Extract <think>...</think> from raw content
 function extractThinkTag(raw) {
   const thinkMatch = raw.match(/^<think>([\s\S]*?)<\/think>\s*/);
   if (thinkMatch) {
@@ -1603,7 +1685,6 @@ function extractThinkTag(raw) {
       content: raw.slice(thinkMatch[0].length)
     };
   }
-  // Still streaming inside <think>
   if (raw.startsWith('<think>') && !raw.includes('</think>')) {
     return {
       thinking: raw.slice(7).trim(),
@@ -1651,7 +1732,6 @@ function finalizeMessage(conv, content, thinking) {
   renderConversationList();
 }
 
-// ── UTILS ──
 function handleKeydown(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 }
@@ -1700,7 +1780,6 @@ function showToast(msg, isError = false) {
   toastTimer = setTimeout(() => toast.remove(), 3000);
 }
 
-// Close modal on overlay click
 document.getElementById('providerModal').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
 });
@@ -1711,7 +1790,6 @@ renderProviderList();
 renderConversationList();
 renderMessages();
 
-// Auto-activate last provider
 if (activeProviderId && providers.find(p => p.id === activeProviderId)) {
   activateProvider(activeProviderId);
 } else if (providers.length > 0) {
