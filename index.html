@@ -1686,6 +1686,7 @@ function renderMessages() {
 
   const lastIdx = conv.messages.length - 1;
   area.innerHTML = conv.messages.map((msg, idx) => renderMessage(msg, idx, idx === lastIdx)).join('');
+  autoScroll = true;
   area.scrollTop = area.scrollHeight;
 }
 
@@ -1996,7 +1997,7 @@ function updateLiveMessage(conv, content, thinking) {
     }
   }
 
-  area.scrollTop = area.scrollHeight;
+if (autoScroll) area.scrollTop = area.scrollHeight;
   document.getElementById('tokenCount').textContent = `TOKENS: ~${Math.ceil((content.length + (thinking?.length || 0)) / 4)}`;
 }
 
@@ -2060,7 +2061,21 @@ function showToast(msg, isError = false) {
 document.getElementById('providerModal').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
 });
+// ── AUTO-SCROLL STATE ──
+let autoScroll = true;
 
+(function initScrollBehavior() {
+  const area = document.getElementById('chatArea');
+  area.addEventListener('wheel', (e) => {
+    if (e.deltaY < 0) autoScroll = false;
+  }, { passive: true });
+  let _ty = 0;
+  area.addEventListener('touchstart', (e) => { _ty = e.touches[0].clientY; }, { passive: true });
+  area.addEventListener('touchmove',  (e) => { if (e.touches[0].clientY > _ty) autoScroll = false; }, { passive: true });
+  area.addEventListener('scroll', () => {
+    if (area.scrollHeight - area.scrollTop - area.clientHeight < 80) autoScroll = true;
+  }, { passive: true });
+})();
 // ── INIT ──
 loadSettings();
 renderProviderList();
