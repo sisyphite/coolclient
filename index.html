@@ -1,4 +1,11 @@
 <!DOCTYPE html>
+<!--
+  File:    llm-terminal.html
+  Purpose: Browser-based chat client for local and cloud LLM providers.
+  Depends: Google Fonts CDN (Share Tech Mono, Rajdhani, Orbitron); localStorage for persistence.
+  Notes:   Single-file app — HTML, CSS, and JS are intentionally co-located.
+           Supports Ollama native protocol and OpenAI-compatible APIs.
+-->
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
@@ -8,35 +15,38 @@
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;600;700&family=Orbitron:wght@400;700;900&display=swap');
 
+  /* ── Design Tokens ─────────────────────────────────────────────────── */
   :root {
-    --bg: #080a0e;
-    --bg2: #0d1117;
-    --bg3: #111820;
-    --line: #1e3a4a;
-    --line-bright: #2a5570;
-    --accent: #00d4ff;
-    --accent2: #00ff9d;
-    --accent3: #ff6b35;
-    --text: #c8dde8;
-    --text-dim: #4a7a8a;
-    --text-bright: #e8f4f8;
-    --user-bg: #0a1a24;
-    --danger: #ff3366;
-    --grid-size: 40px;
+    --bg:           #080a0e;
+    --bg2:          #0d1117;
+    --bg3:          #111820;
+    --line:         #1e3a4a;
+    --line-bright:  #2a5570;
+    --accent:       #00d4ff;
+    --accent2:      #00ff9d;
+    --accent3:      #ff6b35;
+    --text:         #c8dde8;
+    --text-dim:     #4a7a8a;
+    --text-bright:  #e8f4f8;
+    --user-bg:      #0a1a24;
+    --danger:       #ff3366;
+    --grid-size:    40px;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
+  /* ── Base & Background ─────────────────────────────────────────────── */
   body {
-    background: var(--bg);
-    color: var(--text);
+    background:  var(--bg);
+    color:       var(--text);
     font-family: 'Rajdhani', sans-serif;
-    font-size: 15px;
-    height: 100vh;
-    overflow: hidden;
-    position: relative;
+    font-size:   15px;
+    height:      100vh;
+    overflow:    hidden;
+    position:    relative;
   }
 
+  /* Grid overlay */
   body::before {
     content: '';
     position: fixed; inset: 0;
@@ -49,6 +59,7 @@
     z-index: 0;
   }
 
+  /* Scanline overlay */
   body::after {
     content: '';
     position: fixed; inset: 0;
@@ -60,6 +71,7 @@
     z-index: 1;
   }
 
+  /* ── App Layout ────────────────────────────────────────────────────── */
   .app {
     display: grid;
     grid-template-columns: 280px 1fr;
@@ -69,6 +81,7 @@
     z-index: 2;
   }
 
+  /* ── Header ────────────────────────────────────────────────────────── */
   header {
     grid-column: 1 / -1;
     display: flex;
@@ -89,7 +102,7 @@
   }
 
   @keyframes scanH {
-    0% { transform: translateX(-100%); }
+    0%   { transform: translateX(-100%); }
     100% { transform: translateX(100%); }
   }
 
@@ -121,11 +134,15 @@
     animation: pulse 2s ease-in-out infinite;
   }
 
-  .status-dot.offline { background: var(--danger); box-shadow: 0 0 8px var(--danger); animation: none; }
+  .status-dot.offline {
+    background: var(--danger);
+    box-shadow: 0 0 8px var(--danger);
+    animation: none;
+  }
 
   @keyframes pulse {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
+    50%       { opacity: 0.3; }
   }
 
   .status-text {
@@ -156,6 +173,7 @@
     padding-left: 6px;
   }
 
+  /* ── Sidebar ───────────────────────────────────────────────────────── */
   .sidebar {
     background: var(--bg2);
     border-right: 1px solid var(--line-bright);
@@ -165,6 +183,7 @@
     position: relative;
   }
 
+  /* Animated scan line on the right edge */
   .sidebar::before {
     content: '';
     position: absolute;
@@ -177,7 +196,7 @@
   }
 
   @keyframes scanV {
-    0% { top: -40%; }
+    0%   { top: -40%; }
     100% { top: 100%; }
   }
 
@@ -214,6 +233,7 @@
 
   .sidebar-label-btn:hover { border-color: var(--accent2); color: var(--accent2); }
 
+  /* ── Provider List ─────────────────────────────────────────────────── */
   .provider-list {
     display: flex;
     flex-direction: column;
@@ -296,10 +316,10 @@
     transition: color 0.15s;
   }
 
-  .icon-btn:hover { color: var(--accent); }
+  .icon-btn:hover     { color: var(--accent); }
   .icon-btn.del:hover { color: var(--danger); }
 
-  /* ── PRESETS ── */
+  /* ── Preset Grid ───────────────────────────────────────────────────── */
   .preset-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -360,7 +380,7 @@
     background: var(--line);
   }
 
-  /* ── MODAL ── */
+  /* ── Modal ─────────────────────────────────────────────────────────── */
   .modal-overlay {
     display: none;
     position: fixed;
@@ -385,7 +405,7 @@
 
   @keyframes modalIn {
     from { opacity: 0; transform: scale(0.95) translateY(-10px); }
-    to { opacity: 1; transform: scale(1) translateY(0); }
+    to   { opacity: 1; transform: scale(1)    translateY(0); }
   }
 
   .modal-header {
@@ -417,6 +437,7 @@
 
   .modal-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
 
+  /* ── Form Fields ───────────────────────────────────────────────────── */
   .field-label {
     font-family: 'Share Tech Mono', monospace;
     font-size: 10px;
@@ -451,10 +472,7 @@
   input[type="text"]:focus,
   input[type="password"]:focus { border-color: var(--accent); }
 
-  .proto-select-row {
-    display: flex;
-    gap: 8px;
-  }
+  .proto-select-row { display: flex; gap: 8px; }
 
   .proto-option {
     flex: 1;
@@ -501,7 +519,7 @@
     clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
   }
 
-  select:focus { border-color: var(--accent); }
+  select:focus  { border-color: var(--accent); }
   select option { background: var(--bg3); }
 
   .model-select-wrapper { position: relative; }
@@ -534,9 +552,10 @@
     clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
   }
 
-  .system-textarea:focus { border-color: var(--accent2); }
+  .system-textarea:focus       { border-color: var(--accent2); }
   .system-textarea::placeholder { color: var(--text-dim); }
 
+  /* ── Sliders ───────────────────────────────────────────────────────── */
   .slider-row { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
 
   input[type="range"] {
@@ -582,6 +601,7 @@
     color: var(--text-dim);
   }
 
+  /* ── Buttons ───────────────────────────────────────────────────────── */
   .btn {
     display: flex;
     align-items: center;
@@ -608,13 +628,14 @@
     background: rgba(0,212,255,0.05);
   }
 
-  .btn-accent { border-color: var(--accent2); color: var(--accent2); }
-  .btn-accent:hover { background: rgba(0,255,157,0.05); box-shadow: 0 0 10px rgba(0,255,157,0.2); }
-  .btn-danger { border-color: var(--danger); color: var(--danger); }
-  .btn-danger:hover { background: rgba(255,51,102,0.05); }
+  .btn-accent        { border-color: var(--accent2); color: var(--accent2); }
+  .btn-accent:hover  { background: rgba(0,255,157,0.05); box-shadow: 0 0 10px rgba(0,255,157,0.2); }
+  .btn-danger        { border-color: var(--danger); color: var(--danger); }
+  .btn-danger:hover  { background: rgba(255,51,102,0.05); }
 
+  /* ── Conversation List ─────────────────────────────────────────────── */
   .conversations { flex: 1; overflow-y: auto; padding: 8px; min-height: 60px; }
-  .conversations::-webkit-scrollbar { width: 3px; }
+  .conversations::-webkit-scrollbar       { width: 3px; }
   .conversations::-webkit-scrollbar-track { background: transparent; }
   .conversations::-webkit-scrollbar-thumb { background: var(--line-bright); }
 
@@ -628,7 +649,7 @@
     clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
   }
 
-  .conv-item:hover { border-color: var(--line-bright); background: rgba(0,212,255,0.03); }
+  .conv-item:hover  { border-color: var(--line-bright); background: rgba(0,212,255,0.03); }
   .conv-item.active { border-color: var(--accent); background: rgba(0,212,255,0.05); }
 
   .conv-item.active::before {
@@ -671,15 +692,17 @@
   }
 
   .conv-item:hover .conv-delete { opacity: 1; }
-  .conv-delete:hover { color: var(--danger); }
+  .conv-delete:hover             { color: var(--danger); }
 
+  /* ── Main Chat Area ────────────────────────────────────────────────── */
   .main { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
 
   .chat-area { flex: 1; overflow-y: auto; padding: 24px; scroll-behavior: smooth; }
-  .chat-area::-webkit-scrollbar { width: 3px; }
+  .chat-area::-webkit-scrollbar       { width: 3px; }
   .chat-area::-webkit-scrollbar-track { background: transparent; }
   .chat-area::-webkit-scrollbar-thumb { background: var(--line-bright); }
 
+  /* ── Empty State ───────────────────────────────────────────────────── */
   .empty-state {
     display: flex;
     flex-direction: column;
@@ -695,7 +718,7 @@
 
   @keyframes rotateSlow {
     from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    to   { transform: rotate(360deg); }
   }
 
   .empty-text {
@@ -706,11 +729,12 @@
     text-transform: uppercase;
   }
 
+  /* ── Messages ──────────────────────────────────────────────────────── */
   .message { display: flex; gap: 16px; margin-bottom: 20px; animation: fadeInUp 0.3s ease; }
 
   @keyframes fadeInUp {
     from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 
   .message-avatar { width: 32px; height: 32px; flex-shrink: 0; margin-top: 4px; }
@@ -727,7 +751,7 @@
     text-transform: uppercase;
   }
 
-  .role-user { color: var(--accent3); }
+  .role-user      { color: var(--accent3); }
   .role-assistant { color: var(--accent); }
 
   .message-time {
@@ -746,6 +770,7 @@
     clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
   }
 
+  /* User bubble has mirrored clip corners */
   .message.user .message-body {
     background: var(--user-bg);
     border-color: rgba(255,107,53,0.3);
@@ -780,11 +805,12 @@
     clip-path: polygon(0 0, calc(100% - 4px) 0, 100% 4px, 100% 100%, 4px 100%, 0 calc(100% - 4px));
   }
 
-  .msg-btn:hover { border-color: var(--accent); color: var(--accent); }
-  .msg-btn.copied { border-color: var(--accent2); color: var(--accent2); }
-  .msg-btn.regen { border-color: rgba(255,107,53,0.5); color: var(--accent3); }
-  .msg-btn.regen:hover { border-color: var(--accent3); background: rgba(255,107,53,0.05); }
+  .msg-btn:hover         { border-color: var(--accent); color: var(--accent); }
+  .msg-btn.copied        { border-color: var(--accent2); color: var(--accent2); }
+  .msg-btn.regen         { border-color: rgba(255,107,53,0.5); color: var(--accent3); }
+  .msg-btn.regen:hover   { border-color: var(--accent3); background: rgba(255,107,53,0.05); }
 
+  /* ── Thinking / Chain of Thought ──────────────────────────────────── */
   .thinking-block {
     background: rgba(0,255,157,0.03);
     border: 1px solid rgba(0,255,157,0.15);
@@ -807,6 +833,7 @@
     opacity: 0.7;
   }
 
+  /* Blinking cursor shown during streaming */
   .cursor {
     display: inline-block;
     width: 8px; height: 14px;
@@ -818,9 +845,10 @@
 
   @keyframes blink {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0; }
+    50%       { opacity: 0; }
   }
 
+  /* ── Inline Code Formatting ────────────────────────────────────────── */
   .message-body pre {
     background: var(--bg);
     border: 1px solid var(--line-bright);
@@ -840,6 +868,7 @@
 
   .message-body pre code { background: none; padding: 0; color: var(--text); }
 
+  /* ── Input Area ────────────────────────────────────────────────────── */
   .input-area {
     padding: 16px 24px 20px;
     border-top: 1px solid var(--line-bright);
@@ -856,7 +885,7 @@
   }
 
   .input-wrapper { display: flex; gap: 10px; align-items: flex-end; }
-  .input-box { flex: 1; position: relative; }
+  .input-box     { flex: 1; position: relative; }
 
   .input-box::before {
     content: '>';
@@ -886,7 +915,7 @@
     clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
   }
 
-  textarea:focus { border-color: var(--accent); }
+  textarea:focus       { border-color: var(--accent); }
   textarea::placeholder { color: var(--text-dim); }
 
   .send-btn {
@@ -903,9 +932,9 @@
     clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
   }
 
-  .send-btn:hover { background: rgba(0,212,255,0.1); box-shadow: 0 0 20px rgba(0,212,255,0.2); }
+  .send-btn:hover    { background: rgba(0,212,255,0.1); box-shadow: 0 0 20px rgba(0,212,255,0.2); }
   .send-btn:disabled { border-color: var(--line-bright); color: var(--text-dim); cursor: not-allowed; }
-  .send-btn svg { width: 18px; height: 18px; }
+  .send-btn svg      { width: 18px; height: 18px; }
 
   .input-meta {
     display: flex;
@@ -917,6 +946,7 @@
     letter-spacing: 1px;
   }
 
+  /* ── Decorative Corners ────────────────────────────────────────────── */
   .corner-tl, .corner-br {
     position: fixed;
     width: 60px; height: 60px;
@@ -928,6 +958,7 @@
   .corner-tl { top: 60px; left: 284px; }
   .corner-br { bottom: 0; right: 0; transform: rotate(180deg); }
 
+  /* ── Toast Notification ────────────────────────────────────────────── */
   .toast {
     position: fixed;
     bottom: 80px; right: 24px;
@@ -945,9 +976,10 @@
 
   @keyframes toastIn {
     from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 
+  /* ── Loading Spinner ───────────────────────────────────────────────── */
   .loading-ring {
     width: 16px; height: 16px;
     border: 1px solid var(--line-bright);
@@ -959,7 +991,7 @@
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ── ADVANCED SETTINGS ── */
+  /* ── Advanced Settings Panel ───────────────────────────────────────── */
   .adv-toggle {
     display: flex;
     align-items: center;
@@ -1039,10 +1071,10 @@
     clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px));
   }
 
-  input[type="number"].adv-input:focus { border-color: var(--accent); }
+  input[type="number"].adv-input:focus                      { border-color: var(--accent); }
   input[type="number"].adv-input::-webkit-inner-spin-button { opacity: 0.3; }
 
-  /* ── STOP BUTTON ── */
+  /* ── Stop Button ───────────────────────────────────────────────────── */
   .stop-btn {
     width: 48px; height: 48px;
     background: transparent;
@@ -1057,15 +1089,14 @@
     clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
   }
 
-  .stop-btn:hover { background: rgba(255,51,102,0.1); box-shadow: 0 0 20px rgba(255,51,102,0.2); }
-  .stop-btn.visible { display: flex; }
-  .stop-btn svg { width: 16px; height: 16px; }
-
+  .stop-btn:hover      { background: rgba(255,51,102,0.1); box-shadow: 0 0 20px rgba(255,51,102,0.2); }
+  .stop-btn.visible    { display: flex; }
+  .stop-btn svg        { width: 16px; height: 16px; }
 </style>
 </head>
 <body>
 
-<!-- ── CONFIRM MODAL ── -->
+<!-- ── Confirm Modal ─────────────────────────────────────────────────── -->
 <div class="modal-overlay" id="confirmModal">
   <div class="modal" style="width:360px">
     <div class="modal-header">
@@ -1082,7 +1113,7 @@
   </div>
 </div>
 
-<!-- ── PROVIDER MODAL ── -->
+<!-- ── Provider Modal ────────────────────────────────────────────────── -->
 <div class="modal-overlay" id="providerModal">
   <div class="modal">
     <div class="modal-header">
@@ -1091,7 +1122,6 @@
     </div>
     <div class="modal-body">
 
-      <!-- PRESETS -->
       <div>
         <div class="field-label">Quick Select <span style="opacity:0.4;font-size:9px">(AUTO-FILL)</span></div>
         <div class="preset-grid" id="presetGrid"></div>
@@ -1102,28 +1132,28 @@
         <div class="field-label">Name</div>
         <input type="text" id="providerName" placeholder="My Ollama / Groq / Together...">
       </div>
+
       <div>
         <div class="field-label">Protocol</div>
         <div class="proto-select-row">
-          <div class="proto-option selected" data-proto="ollama" onclick="selectProto('ollama')">
-            OLLAMA NATIVE
-          </div>
-          <div class="proto-option" data-proto="openai" onclick="selectProto('openai')">
-            OPENAI COMPAT
-          </div>
+          <div class="proto-option selected" data-proto="ollama" onclick="selectProto('ollama')">OLLAMA NATIVE</div>
+          <div class="proto-option"          data-proto="openai" onclick="selectProto('openai')">OPENAI COMPAT</div>
         </div>
         <div class="field-hint" id="protoHint">Ollama /api/chat — supports thinking field</div>
       </div>
+
       <div>
         <div class="field-label">Base URL</div>
         <input type="text" id="providerUrl" placeholder="http://localhost:11434">
         <div class="field-hint">No trailing slash. For Groq: https://api.groq.com/openai</div>
       </div>
+
       <div>
         <div class="field-label">API Key <span style="opacity:0.4;font-size:9px">(OPTIONAL)</span></div>
         <input type="password" id="providerKey" placeholder="sk-... or leave empty for local">
       </div>
     </div>
+
     <div class="modal-footer">
       <button class="btn" onclick="closeModal()">CANCEL</button>
       <button class="btn btn-accent" onclick="saveProvider()">SAVE</button>
@@ -1131,13 +1161,14 @@
   </div>
 </div>
 
+<!-- ── App Shell ──────────────────────────────────────────────────────── -->
 <div class="app">
   <header>
     <div class="logo">COOL CLIENT</div>
     <div class="logo-slash">// CHAT WITH LLMs</div>
     <svg style="margin-left:16px;opacity:0.3" width="80" height="30" viewBox="0 0 80 30">
-      <polygon points="0,15 15,0 65,0 80,15 65,30 15,30" fill="none" stroke="#00d4ff" stroke-width="0.5"/>
-      <polygon points="10,15 20,5 60,5 70,15 60,25 20,25" fill="none" stroke="#00d4ff" stroke-width="0.5" opacity="0.4"/>
+      <polygon points="0,15 15,0 65,0 80,15 65,30 15,30"   fill="none" stroke="#00d4ff" stroke-width="0.5"/>
+      <polygon points="10,15 20,5 60,5 70,15 60,25 20,25"  fill="none" stroke="#00d4ff" stroke-width="0.5" opacity="0.4"/>
       <line x1="0" y1="15" x2="80" y2="15" stroke="#00d4ff" stroke-width="0.3" opacity="0.3"/>
     </svg>
     <div class="header-status">
@@ -1173,11 +1204,11 @@
         oninput="saveSettings()"></textarea>
     </div>
 
-    <!-- ── ADVANCED SETTINGS ── -->
-    <div class="adv-toggle" onclick="toggleAdv()">
+    <div class="adv-toggle" onclick="toggleAdvancedPanel()">
       <span class="sidebar-label" style="margin:0;border:none;padding:0">// advanced</span>
       <span class="adv-arrow" id="advArrow">▸</span>
     </div>
+
     <div class="adv-body" id="advBody">
       <div class="adv-row">
         <div class="adv-row-label">
@@ -1191,6 +1222,7 @@
         <div class="slider-hints"><span>PRECISE</span><span>CREATIVE</span></div>
         <div class="adv-hint">AFFECTS RANDOMNESS · DEFAULT 0.7</div>
       </div>
+
       <div class="adv-row">
         <div class="adv-row-label">
           TOP P
@@ -1202,6 +1234,7 @@
         </div>
         <div class="adv-hint">NUCLEUS SAMPLING · DEFAULT 1.0</div>
       </div>
+
       <div class="adv-row">
         <div class="adv-row-label">MAX TOKENS</div>
         <input type="number" class="adv-input" id="maxTokens" min="1" max="32768"
@@ -1212,7 +1245,7 @@
 
     <div class="sidebar-section" style="display:flex;gap:8px">
       <button class="btn btn-accent btn-full" style="flex:1" onclick="newConversation()">＋ NEW</button>
-      <button class="btn btn-danger btn-full" style="flex:1" onclick="clearAll()">⌫ CLEAR</button>
+      <button class="btn btn-danger btn-full"  style="flex:1" onclick="clearAllConversations()">⌫ CLEAR</button>
     </div>
 
     <div class="sidebar-label" style="padding:12px 16px 4px">// sessions</div>
@@ -1225,7 +1258,9 @@
       <div class="input-wrapper">
         <div class="input-box">
           <textarea id="messageInput" placeholder="ENTER QUERY..."
-            rows="1" onkeydown="handleKeydown(event)" oninput="autoResize(this)"></textarea>
+            rows="1"
+            onkeydown="handleInputKeydown(event)"
+            oninput="autoResizeTextarea(this)"></textarea>
         </div>
         <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Enter to send">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1257,179 +1292,259 @@
 </svg>
 
 <script>
-// ── CUSTOM CONFIRM ──
-function showConfirm(msg) {
-  return new Promise(resolve => {
-    document.getElementById('confirmMsg').textContent = msg;
-    const overlay = document.getElementById('confirmModal');
-    overlay.classList.add('open');
+/**
+ * File:    llm-terminal.html (script section)
+ * Purpose: State management, API calls, and UI rendering for the LLM chat client.
+ * Depends: localStorage for persistence; DOM elements defined in the HTML above.
+ * Notes:   All provider credentials are stored in localStorage (plain text).
+ *          Streaming uses ReadableStream from the Fetch API.
+ */
 
-    function cleanup(result) {
-      overlay.classList.remove('open');
-      document.getElementById('confirmYes').removeEventListener('click', onYes);
-      document.getElementById('confirmNo').removeEventListener('click', onNo);
-      document.getElementById('confirmCancel').removeEventListener('click', onNo);
-      overlay.removeEventListener('click', onOverlay);
-      resolve(result);
-    }
+// ── Constants ──────────────────────────────────────────────────────────────
 
-    function onYes() { cleanup(true); }
-    function onNo() { cleanup(false); }
-    function onOverlay(e) { if (e.target === overlay) cleanup(false); }
+const TOAST_DISPLAY_MS         = 3000;  // How long a toast notification stays visible
+const AUTO_SCROLL_THRESHOLD_PX = 80;    // Distance from bottom before auto-scroll re-engages
+const APPROX_CHARS_PER_TOKEN   = 4;     // Rough estimate for live token counter
+const MAX_INPUT_HEIGHT_PX      = 160;   // Max height for the auto-growing textarea
+const TOKEN_DISPLAY_RESET_MS   = 5000;  // How long after streaming ends to clear token count
+const MIN_INPUT_HEIGHT_PX      = 48;    // Default / minimum textarea height
 
-    document.getElementById('confirmYes').addEventListener('click', onYes);
-    document.getElementById('confirmNo').addEventListener('click', onNo);
-    document.getElementById('confirmCancel').addEventListener('click', onNo);
-    overlay.addEventListener('click', onOverlay);
-  });
-}
-
-// ── PROVIDER COLORS ──
 const PROTO_COLORS = {
   ollama: '#00d4ff',
-  openai: '#00ff9d'
+  openai: '#00ff9d',
 };
 
 const PROTO_HINTS = {
   ollama: 'Ollama /api/chat — supports thinking field',
-  openai: 'OpenAI-compatible /v1/chat/completions — Groq, Together, etc.'
+  openai: 'OpenAI-compatible /v1/chat/completions — Groq, Together, etc.',
 };
 
-// ── PROVIDER PRESETS ──
+// Provider presets: name, base URL, protocol, and a short tag for the chip.
 const PROVIDER_PRESETS = [
-  { name: 'Groq',       url: 'https://api.groq.com/openai',                              proto: 'openai', tag: 'FREE·快' },
-  { name: 'Mistral',    url: 'https://api.mistral.ai/v1',                                proto: 'openai', tag: 'FREE·EU' },
-  { name: 'Google AI',  url: 'https://generativelanguage.googleapis.com/v1beta/openai',  proto: 'openai', tag: 'Gemini'  },
-  { name: 'Cerebras',   url: 'https://api.cerebras.ai/v1',                               proto: 'openai', tag: 'LPU·免费'},
-  { name: 'Together',   url: 'https://api.together.xyz/v1',                              proto: 'openai', tag: '$25'     },
-  { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1',                             proto: 'openai', tag: '聚合'    },
-  { name: '硅基流动',   url: 'https://api.siliconflow.ai/v1',                            proto: 'openai', tag: '模型多'},
-  { name: '火山引擎',   url: 'https://ark.cn-beijing.volces.com/api/v3',                 proto: 'openai', tag: '字节跳动'},
-  { name: '智谱 GLM',   url: 'https://api.z.ai/api/paas/v4',                            proto: 'openai', tag: '国内免费'},
-  { name: 'Kimi',       url: 'https://api.moonshot.cn/v1',                               proto: 'openai', tag: '长文档'  },
-  { name: 'Ollama',     url: 'http://localhost:11434',                                   proto: 'ollama', tag: '本地'    },
-  { name: 'LM Studio',  url: 'http://localhost:1234/v1',                                 proto: 'openai', tag: '本地'    },
+  { name: 'Groq',      url: 'https://api.groq.com/openai',                             proto: 'openai', tag: 'FREE·快'  },
+  { name: 'Mistral',   url: 'https://api.mistral.ai/v1',                               proto: 'openai', tag: 'FREE·EU'  },
+  { name: 'Google AI', url: 'https://generativelanguage.googleapis.com/v1beta/openai', proto: 'openai', tag: 'Gemini'   },
+  { name: 'Cerebras',  url: 'https://api.cerebras.ai/v1',                              proto: 'openai', tag: 'LPU·免费' },
+  { name: 'Together',  url: 'https://api.together.xyz/v1',                             proto: 'openai', tag: '$25'      },
+  { name: 'OpenRouter',url: 'https://openrouter.ai/api/v1',                            proto: 'openai', tag: '聚合'     },
+  { name: '硅基流动',  url: 'https://api.siliconflow.ai/v1',                           proto: 'openai', tag: '模型多'   },
+  { name: '火山引擎',  url: 'https://ark.cn-beijing.volces.com/api/v3',                proto: 'openai', tag: '字节跳动' },
+  { name: '智谱 GLM',  url: 'https://api.z.ai/api/paas/v4',                           proto: 'openai', tag: '国内免费' },
+  { name: 'Kimi',      url: 'https://api.moonshot.cn/v1',                              proto: 'openai', tag: '长文档'   },
+  { name: 'Ollama',    url: 'http://localhost:11434',                                  proto: 'ollama', tag: '本地'     },
+  { name: 'LM Studio', url: 'http://localhost:1234/v1',                                proto: 'openai', tag: '本地'     },
 ];
 
-function renderPresetGrid() {
-  const grid = document.getElementById('presetGrid');
-  if (!grid) return;
-  grid.innerHTML = PROVIDER_PRESETS.map((p, i) => `
-    <div class="preset-chip" onclick="applyPreset(${i})" title="${p.url}">
-      <span class="chip-name">${escapeHtml(p.name)}</span>
-      <span class="chip-tag">${p.tag}</span>
-    </div>
-  `).join('');
-}
+const STORAGE_KEYS = {
+  providers:      'llm_providers',
+  activeProvider: 'llm_active_provider',
+  conversations:  'llm_convs',
+  settings:       'llm_settings',
+};
 
-function applyPreset(idx) {
-  const p = PROVIDER_PRESETS[idx];
-  document.getElementById('providerName').value = p.name;
-  document.getElementById('providerUrl').value = p.url;
-  selectProto(p.proto);
-  const chips = document.querySelectorAll('.preset-chip');
-  chips.forEach(c => c.style.borderColor = '');
-  if (chips[idx]) {
-    chips[idx].style.borderColor = 'var(--accent2)';
-    chips[idx].style.color = 'var(--accent2)';
-  }
-  document.getElementById('providerKey').focus();
-}
+// ── Application State ───────────────────────────────────────────────────────
 
-// ── STATE ──
-let providers = JSON.parse(localStorage.getItem('llm_providers') || '[]');
-let activeProviderId = localStorage.getItem('llm_active_provider') || null;
-let conversations = JSON.parse(localStorage.getItem('llm_convs') || '[]');
-let activeConvId = null;
-let isStreaming = false;
+let providers        = JSON.parse(localStorage.getItem(STORAGE_KEYS.providers)      || '[]');
+let activeProviderId = localStorage.getItem(STORAGE_KEYS.activeProvider)            || null;
+let conversations    = JSON.parse(localStorage.getItem(STORAGE_KEYS.conversations)  || '[]');
+let activeConvId     = null;
+let isStreaming      = false;
 let editingProviderId = null;
-let selectedProto = 'ollama';
-let abortController = null;
+let selectedProto    = 'ollama';
+let abortController  = null;
+let shouldAutoScroll = true;  // Re-engage auto-scroll when user scrolls near the bottom
 
-function setSendState(streaming) {
-  isStreaming = streaming;
-  document.getElementById('sendBtn').disabled = streaming;
-  document.getElementById('stopBtn').classList.toggle('visible', streaming);
+// ── Confirm Dialog ──────────────────────────────────────────────────────────
+
+/**
+ * Shows a custom modal confirmation dialog instead of the browser's native confirm().
+ *
+ * Args:
+ *   message (string) — The question to display to the user.
+ *
+ * Returns: (Promise<boolean>) true if the user confirmed, false otherwise.
+ */
+function showConfirm(message) {
+  return new Promise(resolve => {
+    document.getElementById('confirmMsg').textContent = message;
+
+    const overlay = document.getElementById('confirmModal');
+    overlay.classList.add('open');
+
+    function closeWithResult(result) {
+      overlay.classList.remove('open');
+      document.getElementById('confirmYes').removeEventListener('click', onConfirm);
+      document.getElementById('confirmNo').removeEventListener('click', onCancel);
+      document.getElementById('confirmCancel').removeEventListener('click', onCancel);
+      overlay.removeEventListener('click', onOverlayClick);
+      resolve(result);
+    }
+
+    function onConfirm()              { closeWithResult(true); }
+    function onCancel()               { closeWithResult(false); }
+    function onOverlayClick(event)    { if (event.target === overlay) closeWithResult(false); }
+
+    document.getElementById('confirmYes').addEventListener('click', onConfirm);
+    document.getElementById('confirmNo').addEventListener('click', onCancel);
+    document.getElementById('confirmCancel').addEventListener('click', onCancel);
+    overlay.addEventListener('click', onOverlayClick);
+  });
 }
 
+// ── Streaming Control ───────────────────────────────────────────────────────
+
+/**
+ * Toggles the send/stop button visibility and disables the send button while streaming.
+ *
+ * Args:
+ *   isCurrentlyStreaming (boolean) — true to enter streaming state, false to exit.
+ */
+function setStreamingState(isCurrentlyStreaming) {
+  isStreaming = isCurrentlyStreaming;
+  document.getElementById('sendBtn').disabled = isCurrentlyStreaming;
+  document.getElementById('stopBtn').classList.toggle('visible', isCurrentlyStreaming);
+}
+
+/**
+ * Aborts the in-flight streaming request, if one exists.
+ * The AbortError is caught in runAssistant and handled gracefully.
+ */
 function stopStreaming() {
-  if (abortController) { abortController.abort(); abortController = null; }
+  if (abortController) {
+    abortController.abort();
+    abortController = null;
+  }
 }
 
+// ── Provider Helpers ────────────────────────────────────────────────────────
+
+/**
+ * Returns the currently active provider object, or null if none is selected.
+ *
+ * Returns: (object|null) provider record from the providers array.
+ */
 function getActiveProvider() {
-  return providers.find(p => p.id === activeProviderId) || null;
+  return providers.find(provider => provider.id === activeProviderId) || null;
 }
 
+// ── Settings Persistence ────────────────────────────────────────────────────
+
+/**
+ * Reads the current sidebar settings and persists them to localStorage.
+ */
 function saveSettings() {
-  const maxT = document.getElementById('maxTokens').value;
-  localStorage.setItem('llm_settings', JSON.stringify({
+  const rawMaxTokens = document.getElementById('maxTokens').value;
+
+  const settings = {
     temperature: parseFloat(document.getElementById('tempSlider').value),
-    topP: parseFloat(document.getElementById('topPSlider').value),
-    maxTokens: maxT ? parseInt(maxT) : null,
-    systemPrompt: document.getElementById('systemPrompt').value
-  }));
+    topP:        parseFloat(document.getElementById('topPSlider').value),
+    maxTokens:   rawMaxTokens ? parseInt(rawMaxTokens) : null,
+    systemPrompt: document.getElementById('systemPrompt').value,
+  };
+
+  localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(settings));
 }
 
+/**
+ * Loads persisted settings from localStorage and populates the sidebar controls.
+ */
 function loadSettings() {
+  let settings;
+
   try {
-    const s = JSON.parse(localStorage.getItem('llm_settings') || '{}');
-    if (s.temperature !== undefined) {
-      document.getElementById('tempSlider').value = s.temperature;
-      document.getElementById('tempVal').textContent = Number(s.temperature).toFixed(2);
-    }
-    if (s.topP !== undefined) {
-      document.getElementById('topPSlider').value = s.topP;
-      document.getElementById('topPVal').textContent = Number(s.topP).toFixed(2);
-    }
-    if (s.maxTokens) document.getElementById('maxTokens').value = s.maxTokens;
-    if (s.systemPrompt) document.getElementById('systemPrompt').value = s.systemPrompt;
-  } catch {}
+    settings = JSON.parse(localStorage.getItem(STORAGE_KEYS.settings) || '{}');
+  } catch (parseError) {
+    console.warn('Failed to parse saved settings, using defaults:', parseError);
+    settings = {};
+  }
+
+  if (settings.temperature !== undefined) {
+    document.getElementById('tempSlider').value = settings.temperature;
+    document.getElementById('tempVal').textContent = Number(settings.temperature).toFixed(2);
+  }
+
+  if (settings.topP !== undefined) {
+    document.getElementById('topPSlider').value = settings.topP;
+    document.getElementById('topPVal').textContent = Number(settings.topP).toFixed(2);
+  }
+
+  if (settings.maxTokens) {
+    document.getElementById('maxTokens').value = settings.maxTokens;
+  }
+
+  if (settings.systemPrompt) {
+    document.getElementById('systemPrompt').value = settings.systemPrompt;
+  }
 }
 
-function toggleAdv() {
-  const body = document.getElementById('advBody');
-  const arrow = document.getElementById('advArrow');
-  body.classList.toggle('open');
-  arrow.classList.toggle('open');
+// ── Advanced Panel ──────────────────────────────────────────────────────────
+
+/**
+ * Toggles the advanced settings panel open or closed.
+ */
+function toggleAdvancedPanel() {
+  document.getElementById('advBody').classList.toggle('open');
+  document.getElementById('advArrow').classList.toggle('open');
 }
 
+// ── Provider Modal ──────────────────────────────────────────────────────────
+
+/**
+ * Opens the provider add/edit modal, pre-populating fields if editing an existing provider.
+ *
+ * Args:
+ *   providerId (string|null) — The ID of the provider to edit, or null for a new one.
+ */
 function openModal(providerId = null) {
   editingProviderId = providerId;
-  const modal = document.getElementById('providerModal');
-  document.getElementById('modalTitle').textContent = providerId ? 'EDIT PROVIDER' : 'ADD PROVIDER';
 
-  if (providerId) {
-    const p = providers.find(x => x.id === providerId);
-    if (p) {
-      document.getElementById('providerName').value = p.name;
-      document.getElementById('providerUrl').value = p.url;
-      document.getElementById('providerKey').value = p.key || '';
-      selectProto(p.proto);
+  const isEditing = Boolean(providerId);
+  document.getElementById('modalTitle').textContent = isEditing ? 'EDIT PROVIDER' : 'ADD PROVIDER';
+
+  if (isEditing) {
+    const existingProvider = providers.find(provider => provider.id === providerId);
+    if (existingProvider) {
+      document.getElementById('providerName').value = existingProvider.name;
+      document.getElementById('providerUrl').value  = existingProvider.url;
+      document.getElementById('providerKey').value  = existingProvider.key || '';
+      selectProto(existingProvider.proto);
     }
   } else {
     document.getElementById('providerName').value = '';
-    document.getElementById('providerUrl').value = '';
-    document.getElementById('providerKey').value = '';
+    document.getElementById('providerUrl').value  = '';
+    document.getElementById('providerKey').value  = '';
     selectProto('ollama');
   }
 
   renderPresetGrid();
-  modal.classList.add('open');
+  document.getElementById('providerModal').classList.add('open');
   document.getElementById('providerName').focus();
 }
 
+/**
+ * Closes the provider modal and clears the editing state.
+ */
 function closeModal() {
   document.getElementById('providerModal').classList.remove('open');
   editingProviderId = null;
 }
 
+/**
+ * Selects a protocol option (ollama or openai) in the modal and updates the hint text.
+ *
+ * Args:
+ *   proto (string) — 'ollama' or 'openai'.
+ */
 function selectProto(proto) {
   selectedProto = proto;
-  document.querySelectorAll('.proto-option').forEach(el => {
-    el.classList.toggle('selected', el.dataset.proto === proto);
+
+  document.querySelectorAll('.proto-option').forEach(option => {
+    option.classList.toggle('selected', option.dataset.proto === proto);
   });
+
   document.getElementById('protoHint').textContent = PROTO_HINTS[proto];
 
+  // Only suggest a placeholder if the user hasn't typed a URL yet
   const urlInput = document.getElementById('providerUrl');
   if (!urlInput.value) {
     urlInput.placeholder = proto === 'ollama'
@@ -1438,224 +1553,418 @@ function selectProto(proto) {
   }
 }
 
+// ── Preset Grid ─────────────────────────────────────────────────────────────
+
+/**
+ * Renders the preset chip grid inside the provider modal.
+ */
+function renderPresetGrid() {
+  const grid = document.getElementById('presetGrid');
+  if (!grid) return;
+
+  grid.innerHTML = PROVIDER_PRESETS.map((preset, index) => `
+    <div class="preset-chip" onclick="applyPreset(${index})" title="${preset.url}">
+      <span class="chip-name">${escapeHtml(preset.name)}</span>
+      <span class="chip-tag">${preset.tag}</span>
+    </div>
+  `).join('');
+}
+
+/**
+ * Fills the provider form fields with values from a preset, then focuses the API key field.
+ *
+ * Args:
+ *   presetIndex (number) — Index into PROVIDER_PRESETS.
+ */
+function applyPreset(presetIndex) {
+  const preset = PROVIDER_PRESETS[presetIndex];
+
+  document.getElementById('providerName').value = preset.name;
+  document.getElementById('providerUrl').value  = preset.url;
+  selectProto(preset.proto);
+
+  // Highlight the selected chip visually
+  document.querySelectorAll('.preset-chip').forEach((chip, index) => {
+    chip.style.borderColor = index === presetIndex ? 'var(--accent2)' : '';
+    chip.style.color       = index === presetIndex ? 'var(--accent2)' : '';
+  });
+
+  document.getElementById('providerKey').focus();
+}
+
+// ── Provider CRUD ───────────────────────────────────────────────────────────
+
+/**
+ * Validates modal fields and saves the provider (create or update) to state and localStorage.
+ */
 function saveProvider() {
   const name = document.getElementById('providerName').value.trim();
-  const url = document.getElementById('providerUrl').value.trim().replace(/\/$/, '');
-  const key = document.getElementById('providerKey').value.trim();
+  const url  = document.getElementById('providerUrl').value.trim().replace(/\/$/, '');
+  const key  = document.getElementById('providerKey').value.trim();
 
   if (!name) { showToast('✕ Enter a name', true); return; }
-  if (!url) { showToast('✕ Enter a URL', true); return; }
+  if (!url)  { showToast('✕ Enter a URL', true); return; }
 
   if (editingProviderId) {
-    const idx = providers.findIndex(p => p.id === editingProviderId);
-    if (idx >= 0) {
-      providers[idx] = { ...providers[idx], name, url, key, proto: selectedProto };
+    const existingIndex = providers.findIndex(provider => provider.id === editingProviderId);
+    if (existingIndex >= 0) {
+      providers[existingIndex] = { ...providers[existingIndex], name, url, key, proto: selectedProto };
     }
   } else {
     providers.push({
-      id: Date.now().toString(),
+      id:        Date.now().toString(),
       name, url, key,
-      proto: selectedProto,
-      lastModel: null
+      proto:     selectedProto,
+      lastModel: null,
     });
   }
 
-  localStorage.setItem('llm_providers', JSON.stringify(providers));
+  localStorage.setItem(STORAGE_KEYS.providers, JSON.stringify(providers));
   closeModal();
   renderProviderList();
 
-  if (providers.length === 1) {
-    activateProvider(providers[0].id);
-  }
+  // Auto-activate when the first provider is added
+  if (providers.length === 1) activateProvider(providers[0].id);
 }
 
-async function deleteProvider(id, e) {
-  e.stopPropagation();
-  const p = providers.find(x => x.id === id);
-  const confirmed = await showConfirm(`DELETE PROVIDER\n"${p?.name || id}"?`);
-  if (!confirmed) return;
+/**
+ * Prompts for confirmation then removes a provider from state and localStorage.
+ *
+ * Args:
+ *   providerId (string) — The provider to delete.
+ *   event      (Event)  — The click event; propagation is stopped to avoid activating the row.
+ */
+async function deleteProvider(providerId, event) {
+  event.stopPropagation();
 
-  providers = providers.filter(p => p.id !== id);
-  localStorage.setItem('llm_providers', JSON.stringify(providers));
-  if (activeProviderId === id) {
+  const targetProvider = providers.find(provider => provider.id === providerId);
+  const isConfirmed    = await showConfirm(`DELETE PROVIDER\n"${targetProvider?.name || providerId}"?`);
+  if (!isConfirmed) return;
+
+  providers = providers.filter(provider => provider.id !== providerId);
+  localStorage.setItem(STORAGE_KEYS.providers, JSON.stringify(providers));
+
+  // Fall back to the first remaining provider, or clear the active state
+  if (activeProviderId === providerId) {
     activeProviderId = providers[0]?.id || null;
-    localStorage.setItem('llm_active_provider', activeProviderId || '');
+    localStorage.setItem(STORAGE_KEYS.activeProvider, activeProviderId || '');
   }
+
   renderProviderList();
-  if (activeProviderId) activateProvider(activeProviderId);
-  else {
-    setStatus(false, 'NO PROVIDER');
+
+  if (activeProviderId) {
+    activateProvider(activeProviderId);
+  } else {
+    setConnectionStatus(false, 'NO PROVIDER');
     document.getElementById('activeBadge').style.display = 'none';
     document.getElementById('modelSelect').innerHTML = '<option value="">— select provider —</option>';
   }
 }
 
-function activateProvider(id) {
-  activeProviderId = id;
-  localStorage.setItem('llm_active_provider', id);
+/**
+ * Sets the given provider as active and triggers a model list refresh.
+ *
+ * Args:
+ *   providerId (string) — The provider to activate.
+ */
+function activateProvider(providerId) {
+  activeProviderId = providerId;
+  localStorage.setItem(STORAGE_KEYS.activeProvider, providerId);
   renderProviderList();
   loadModels();
 }
 
+// ── Provider Rendering ──────────────────────────────────────────────────────
+
+/**
+ * Re-renders the provider list in the sidebar from the current providers array.
+ */
 function renderProviderList() {
   const container = document.getElementById('providerList');
+
   if (!providers.length) {
     container.innerHTML = '<div style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--text-dim);text-align:center;padding:8px;letter-spacing:1px">NO PROVIDERS</div>';
     return;
   }
 
-  container.innerHTML = providers.map(p => `
-    <div class="provider-item ${p.id === activeProviderId ? 'active' : ''}"
-         onclick="activateProvider('${p.id}')">
-      <div class="provider-dot" style="background:${PROTO_COLORS[p.proto]};box-shadow:0 0 6px ${PROTO_COLORS[p.proto]}"></div>
-      <div class="provider-info">
-        <div class="provider-name">${escapeHtml(p.name)}</div>
-        <div class="provider-url">${escapeHtml(p.url.replace(/^https?:\/\//, ''))}</div>
+  container.innerHTML = providers.map(provider => {
+    const dotColor  = PROTO_COLORS[provider.proto];
+    const isActive  = provider.id === activeProviderId;
+    const hostOnly  = escapeHtml(provider.url.replace(/^https?:\/\//, ''));
+
+    return `
+      <div class="provider-item ${isActive ? 'active' : ''}"
+           onclick="activateProvider('${provider.id}')">
+        <div class="provider-dot" style="background:${dotColor};box-shadow:0 0 6px ${dotColor}"></div>
+        <div class="provider-info">
+          <div class="provider-name">${escapeHtml(provider.name)}</div>
+          <div class="provider-url">${hostOnly}</div>
+        </div>
+        <div class="provider-actions">
+          <button class="icon-btn"     onclick="event.stopPropagation();openModal('${provider.id}')" title="Edit">✎</button>
+          <button class="icon-btn del" onclick="deleteProvider('${provider.id}', event)"             title="Delete">✕</button>
+        </div>
       </div>
-      <div class="provider-actions">
-        <button class="icon-btn" onclick="event.stopPropagation();openModal('${p.id}')" title="Edit">✎</button>
-        <button class="icon-btn del" onclick="deleteProvider('${p.id}', event)" title="Delete">✕</button>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
+// ── Model Loading ───────────────────────────────────────────────────────────
+
+/**
+ * Fetches the model list from the active provider and populates the model dropdown.
+ * Shows connection status and a toast on success or failure.
+ */
 async function loadModels() {
   const provider = getActiveProvider();
   if (!provider) return;
 
   document.getElementById('modelSelect').innerHTML = '<option value="">— connecting... —</option>';
   document.getElementById('activeBadge').style.display = 'none';
-  setStatus(false, 'CONNECTING...');
+  setConnectionStatus(false, 'CONNECTING...');
 
   try {
-    let models = [];
+    const modelNames = await fetchModelNames(provider);
+    populateModelDropdown(provider, modelNames);
+    setConnectionStatus(true, `${modelNames.length} MODELS`);
+    updateProviderBadge();
+    showToast(`◈ ${provider.name}: ${modelNames.length} models`);
 
-    if (provider.proto === 'ollama') {
-      const res = await fetch(`${provider.url}/api/tags`, {
-        headers: provider.key ? { 'Authorization': `Bearer ${provider.key}` } : {}
-      });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      models = (data.models || []).map(m => m.name);
-
-    } else {
-      const modelsUrl = provider.url.endsWith('/v1') || provider.url.match(/\/v\d+$/)
-        ? `${provider.url}/models`
-        : `${provider.url}/v1/models`;
-      const res = await fetch(modelsUrl, {
-        headers: {
-          'Authorization': `Bearer ${provider.key || 'none'}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      models = (data.data || []).map(m => m.id).sort();
-    }
-
-    const sel = document.getElementById('modelSelect');
-    sel.innerHTML = models.length
-      ? models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('')
-      : '<option value="">No models found</option>';
-
-    if (provider.lastModel && models.includes(provider.lastModel)) {
-      sel.value = provider.lastModel;
-    }
-
-    sel.onchange = () => {
-      const p = getActiveProvider();
-      if (p) {
-        p.lastModel = sel.value;
-        localStorage.setItem('llm_providers', JSON.stringify(providers));
-      }
-      updateBadge();
-    };
-
-    setStatus(true, `${models.length} MODELS`);
-    updateBadge();
-    showToast(`◈ ${provider.name}: ${models.length} models`);
-
-  } catch (e) {
-    setStatus(false, 'CONNECT FAILED');
-    showToast(`✕ ${e.message}`, true);
+  } catch (fetchError) {
+    setConnectionStatus(false, 'CONNECT FAILED');
+    showToast(`✕ ${fetchError.message}`, true);
     document.getElementById('modelSelect').innerHTML = '<option value="">— connect failed —</option>';
     document.getElementById('activeBadge').style.display = 'none';
+    console.error(`Failed to load models for provider "${provider.name}":`, fetchError);
   }
 }
 
-function setStatus(online, text) {
-  document.getElementById('statusDot').className = 'status-dot' + (online ? '' : ' offline');
-  document.getElementById('statusText').textContent = text;
+/**
+ * Fetches available model names from the provider using its declared protocol.
+ *
+ * Args:
+ *   provider (object) — Provider record with url, proto, and key fields.
+ *
+ * Returns: (Promise<string[]>) Array of model name strings.
+ *
+ * Raises: Error if the HTTP request fails or the response is not OK.
+ */
+async function fetchModelNames(provider) {
+  if (provider.proto === 'ollama') {
+    return fetchOllamaModelNames(provider);
+  }
+  return fetchOpenAIModelNames(provider);
 }
 
-function updateBadge() {
-  const p = getActiveProvider();
-  const badge = document.getElementById('activeBadge');
-  if (!p) { badge.style.display = 'none'; return; }
-  badge.style.display = 'inline-flex';
-  document.getElementById('badgeName').textContent = p.name;
-  document.getElementById('badgeProto').textContent = p.proto.toUpperCase();
+/**
+ * Fetches model names via the Ollama /api/tags endpoint.
+ *
+ * Args:
+ *   provider (object) — Provider record.
+ *
+ * Returns: (Promise<string[]>) Sorted list of model name strings.
+ */
+async function fetchOllamaModelNames(provider) {
+  const headers = provider.key ? { Authorization: `Bearer ${provider.key}` } : {};
+  const response = await fetch(`${provider.url}/api/tags`, { headers });
+
+  if (!response.ok) throw new Error('HTTP ' + response.status);
+
+  const data = await response.json();
+  return (data.models || []).map(model => model.name);
 }
 
-function saveConversations() {
-  localStorage.setItem('llm_convs', JSON.stringify(conversations));
+/**
+ * Fetches model names via the OpenAI-compatible /models endpoint.
+ *
+ * Args:
+ *   provider (object) — Provider record.
+ *
+ * Returns: (Promise<string[]>) Sorted list of model ID strings.
+ */
+async function fetchOpenAIModelNames(provider) {
+  // Some providers omit /v1; detect and append it only when missing
+  const hasVersionSuffix = provider.url.endsWith('/v1') || /\/v\d+$/.test(provider.url);
+  const modelsUrl = hasVersionSuffix
+    ? `${provider.url}/models`
+    : `${provider.url}/v1/models`;
+
+  const response = await fetch(modelsUrl, {
+    headers: {
+      Authorization:  `Bearer ${provider.key || 'none'}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) throw new Error('HTTP ' + response.status);
+
+  const data = await response.json();
+  return (data.data || []).map(model => model.id).sort();
 }
 
-function getActiveConv() {
-  return conversations.find(c => c.id === activeConvId);
-}
+/**
+ * Fills the model <select> with the provided model names and restores any previously
+ * selected model if it still exists in the list.
+ *
+ * Args:
+ *   provider   (object)   — The active provider (used to restore lastModel).
+ *   modelNames (string[]) — Model names to display.
+ */
+function populateModelDropdown(provider, modelNames) {
+  const select = document.getElementById('modelSelect');
 
-function newConversation() {
-  const conv = {
-    id: Date.now().toString(),
-    title: 'NEW SESSION',
-    messages: [],
-    createdAt: new Date().toISOString()
+  select.innerHTML = modelNames.length
+    ? modelNames.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('')
+    : '<option value="">No models found</option>';
+
+  if (provider.lastModel && modelNames.includes(provider.lastModel)) {
+    select.value = provider.lastModel;
+  }
+
+  // Persist the selected model when the user changes it
+  select.onchange = () => {
+    const activeProvider = getActiveProvider();
+    if (activeProvider) {
+      activeProvider.lastModel = select.value;
+      localStorage.setItem(STORAGE_KEYS.providers, JSON.stringify(providers));
+    }
+    updateProviderBadge();
   };
-  conversations.unshift(conv);
+}
+
+// ── Status & Badge ──────────────────────────────────────────────────────────
+
+/**
+ * Updates the header connection status indicator.
+ *
+ * Args:
+ *   isOnline  (boolean) — true = green pulse, false = red static dot.
+ *   statusMsg (string)  — Short status label shown next to the dot.
+ */
+function setConnectionStatus(isOnline, statusMsg) {
+  document.getElementById('statusDot').className = 'status-dot' + (isOnline ? '' : ' offline');
+  document.getElementById('statusText').textContent = statusMsg;
+}
+
+/**
+ * Updates the provider badge in the header with the active provider name and protocol.
+ */
+function updateProviderBadge() {
+  const provider = getActiveProvider();
+  const badge    = document.getElementById('activeBadge');
+
+  if (!provider) {
+    badge.style.display = 'none';
+    return;
+  }
+
+  badge.style.display = 'inline-flex';
+  document.getElementById('badgeName').textContent  = provider.name;
+  document.getElementById('badgeProto').textContent = provider.proto.toUpperCase();
+}
+
+// ── Conversation Management ─────────────────────────────────────────────────
+
+/**
+ * Persists the current conversations array to localStorage.
+ */
+function saveConversations() {
+  localStorage.setItem(STORAGE_KEYS.conversations, JSON.stringify(conversations));
+}
+
+/**
+ * Returns the currently active conversation object, or undefined if none is selected.
+ *
+ * Returns: (object|undefined) conversation record.
+ */
+function getActiveConversation() {
+  return conversations.find(conv => conv.id === activeConvId);
+}
+
+/**
+ * Creates a new empty conversation, saves it, and selects it.
+ */
+function newConversation() {
+  const newConv = {
+    id:        Date.now().toString(),
+    title:     'NEW SESSION',
+    messages:  [],
+    createdAt: new Date().toISOString(),
+  };
+
+  conversations.unshift(newConv);
   saveConversations();
-  selectConversation(conv.id);
+  selectConversation(newConv.id);
   renderConversationList();
 }
 
-function selectConversation(id) {
-  activeConvId = id;
+/**
+ * Selects a conversation by ID and re-renders the message area.
+ *
+ * Args:
+ *   conversationId (string) — ID of the conversation to activate.
+ */
+function selectConversation(conversationId) {
+  activeConvId = conversationId;
   renderConversationList();
   renderMessages();
 }
 
-async function deleteConversation(id, e) {
-  e.stopPropagation();
-  const conv = conversations.find(c => c.id === id);
-  const confirmed = await showConfirm(`DELETE SESSION\n"${conv?.title || 'this session'}"?`);
-  if (!confirmed) return;
+/**
+ * Prompts for confirmation then deletes the specified conversation.
+ *
+ * Args:
+ *   conversationId (string) — ID of the conversation to delete.
+ *   event          (Event)  — Click event; propagation is stopped.
+ */
+async function deleteConversation(conversationId, event) {
+  event.stopPropagation();
 
-  conversations = conversations.filter(c => c.id !== id);
-  if (activeConvId === id) activeConvId = conversations[0]?.id || null;
+  const targetConv  = conversations.find(conv => conv.id === conversationId);
+  const isConfirmed = await showConfirm(`DELETE SESSION\n"${targetConv?.title || 'this session'}"?`);
+  if (!isConfirmed) return;
+
+  conversations = conversations.filter(conv => conv.id !== conversationId);
+
+  if (activeConvId === conversationId) {
+    activeConvId = conversations[0]?.id || null;
+  }
+
   saveConversations();
   renderConversationList();
   renderMessages();
 }
 
-async function clearAll() {
-  const confirmed = await showConfirm('CLEAR ALL SESSIONS?\nThis cannot be undone.');
-  if (!confirmed) return;
+/**
+ * Prompts for confirmation then clears all saved conversations.
+ */
+async function clearAllConversations() {
+  const isConfirmed = await showConfirm('CLEAR ALL SESSIONS?\nThis cannot be undone.');
+  if (!isConfirmed) return;
+
   conversations = [];
-  activeConvId = null;
+  activeConvId  = null;
   saveConversations();
   renderConversationList();
   renderMessages();
 }
 
+// ── Conversation List Rendering ─────────────────────────────────────────────
+
+/**
+ * Re-renders the sidebar conversation list from the current conversations array.
+ */
 function renderConversationList() {
   const list = document.getElementById('conversationList');
+
   if (!conversations.length) {
     list.innerHTML = '<div style="padding:12px;font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--text-dim);letter-spacing:2px;text-align:center">NO SESSIONS</div>';
     return;
   }
+
   list.innerHTML = conversations.map(conv => `
-    <div class="conv-item ${conv.id === activeConvId ? 'active' : ''}" onclick="selectConversation('${conv.id}')">
+    <div class="conv-item ${conv.id === activeConvId ? 'active' : ''}"
+         onclick="selectConversation('${conv.id}')">
       <button class="conv-delete" onclick="deleteConversation('${conv.id}', event)">×</button>
       <div class="conv-title">${escapeHtml(conv.title)}</div>
       <div class="conv-meta">${conv.messages.length} MSG · ${formatDate(conv.createdAt)}</div>
@@ -1663,431 +1972,770 @@ function renderConversationList() {
   `).join('');
 }
 
+// ── Message Rendering ───────────────────────────────────────────────────────
+
+/**
+ * Re-renders the full message list for the active conversation.
+ * Shows an empty state illustration if there are no messages.
+ */
 function renderMessages() {
   const area = document.getElementById('chatArea');
-  const conv = getActiveConv();
+  const conv = getActiveConversation();
 
   if (!conv || !conv.messages.length) {
-    area.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-geo">
-          <svg viewBox="0 0 120 120" fill="none">
-            <polygon points="60,5 115,32.5 115,87.5 60,115 5,87.5 5,32.5" stroke="#1e3a4a" stroke-width="1"/>
-            <polygon points="60,20 100,40 100,80 60,100 20,80 20,40" stroke="#2a5570" stroke-width="1"/>
-            <polygon points="60,35 85,47.5 85,72.5 60,85 35,72.5 35,47.5" stroke="#00d4ff" stroke-width="1" opacity="0.5"/>
-            <circle cx="60" cy="60" r="8" stroke="#00d4ff" stroke-width="1" opacity="0.8"/>
-            <circle cx="60" cy="60" r="3" fill="#00d4ff" opacity="0.6"/>
-          </svg>
-        </div>
-        <div class="empty-text">AWAITING INPUT</div>
-      </div>`;
+    area.innerHTML = buildEmptyStateHtml();
     return;
   }
 
-  const lastIdx = conv.messages.length - 1;
-  area.innerHTML = conv.messages.map((msg, idx) => renderMessage(msg, idx, idx === lastIdx)).join('');
-  autoScroll = true;
+  const lastMessageIndex = conv.messages.length - 1;
+  area.innerHTML = conv.messages
+    .map((msg, index) => buildMessageHtml(msg, index, index === lastMessageIndex))
+    .join('');
+
+  shouldAutoScroll = true;
   area.scrollTop = area.scrollHeight;
 }
 
-function renderMessage(msg, idx, isLast) {
-  const isUser = msg.role === 'user';
-  const thinking = msg.thinking ? `
-    <div class="thinking-block">
-      <div class="thinking-label">// CHAIN OF THOUGHT</div>
-      ${escapeHtml(msg.thinking)}
-    </div>` : '';
+/**
+ * Returns the HTML string for the empty-chat placeholder illustration.
+ *
+ * Returns: (string) HTML markup.
+ */
+function buildEmptyStateHtml() {
+  return `
+    <div class="empty-state">
+      <div class="empty-geo">
+        <svg viewBox="0 0 120 120" fill="none">
+          <polygon points="60,5 115,32.5 115,87.5 60,115 5,87.5 5,32.5"  stroke="#1e3a4a" stroke-width="1"/>
+          <polygon points="60,20 100,40 100,80 60,100 20,80 20,40"        stroke="#2a5570" stroke-width="1"/>
+          <polygon points="60,35 85,47.5 85,72.5 60,85 35,72.5 35,47.5"  stroke="#00d4ff" stroke-width="1" opacity="0.5"/>
+          <circle cx="60" cy="60" r="8" stroke="#00d4ff" stroke-width="1" opacity="0.8"/>
+          <circle cx="60" cy="60" r="3" fill="#00d4ff" opacity="0.6"/>
+        </svg>
+      </div>
+      <div class="empty-text">AWAITING INPUT</div>
+    </div>`;
+}
 
-  const copyBtn = `<button class="msg-btn" onclick="copyMessage(this,${idx})">⎘ COPY</button>`;
-  const regenBtn = (isLast && !isUser && msg.content)
-    ? `<button class="msg-btn regen" onclick="regenerate()">↺ REGEN</button>` : '';
+/**
+ * Builds the HTML string for a single chat message bubble.
+ *
+ * Args:
+ *   message        (object)  — Message record with role, content, thinking, and time.
+ *   messageIndex   (number)  — Position in the messages array (used for copy callback).
+ *   isLastMessage  (boolean) — True for the final message; shows a Regenerate button.
+ *
+ * Returns: (string) HTML markup for the message.
+ */
+function buildMessageHtml(message, messageIndex, isLastMessage) {
+  const isUserMessage = message.role === 'user';
 
-  const avatar = isUser
+  const thinkingHtml = message.thinking
+    ? `<div class="thinking-block">
+         <div class="thinking-label">// CHAIN OF THOUGHT</div>
+         ${escapeHtml(message.thinking)}
+       </div>`
+    : '';
+
+  const copyButton = `<button class="msg-btn" onclick="copyMessageToClipboard(this, ${messageIndex})">⎘ COPY</button>`;
+
+  const regenButton = (isLastMessage && !isUserMessage && message.content)
+    ? `<button class="msg-btn regen" onclick="regenerateLastResponse()">↺ REGEN</button>`
+    : '';
+
+  const avatarHtml = isUserMessage
     ? `<svg viewBox="0 0 32 32" fill="none">
-        <polygon points="16,2 30,9 30,23 16,30 2,23 2,9" stroke="#ff6b35" stroke-width="1" fill="rgba(255,107,53,0.05)"/>
-        <polygon points="16,8 24,12 24,20 16,24 8,20 8,12" stroke="#ff6b35" stroke-width="0.5" opacity="0.5"/>
-        <circle cx="16" cy="16" r="3" fill="#ff6b35" opacity="0.8"/>
+         <polygon points="16,2 30,9 30,23 16,30 2,23 2,9" stroke="#ff6b35" stroke-width="1" fill="rgba(255,107,53,0.05)"/>
+         <polygon points="16,8 24,12 24,20 16,24 8,20 8,12" stroke="#ff6b35" stroke-width="0.5" opacity="0.5"/>
+         <circle cx="16" cy="16" r="3" fill="#ff6b35" opacity="0.8"/>
        </svg>`
     : `<svg viewBox="0 0 32 32" fill="none">
-        <rect x="2" y="2" width="28" height="28" stroke="#00d4ff" stroke-width="1" fill="rgba(0,212,255,0.05)"/>
-        <rect x="7" y="7" width="18" height="18" stroke="#00d4ff" stroke-width="0.5" opacity="0.5"/>
-        <circle cx="16" cy="16" r="4" stroke="#00d4ff" stroke-width="1"/>
-        <circle cx="16" cy="16" r="1.5" fill="#00d4ff" opacity="0.8"/>
+         <rect x="2" y="2" width="28" height="28" stroke="#00d4ff" stroke-width="1" fill="rgba(0,212,255,0.05)"/>
+         <rect x="7" y="7" width="18" height="18" stroke="#00d4ff" stroke-width="0.5" opacity="0.5"/>
+         <circle cx="16" cy="16" r="4" stroke="#00d4ff" stroke-width="1"/>
+         <circle cx="16" cy="16" r="1.5" fill="#00d4ff" opacity="0.8"/>
        </svg>`;
 
   return `
-    <div class="message ${msg.role}">
-      <div class="message-avatar">${avatar}</div>
+    <div class="message ${message.role}">
+      <div class="message-avatar">${avatarHtml}</div>
       <div class="message-content">
         <div class="message-header">
-          <span class="message-role role-${msg.role}">${isUser ? 'USER' : 'ASSISTANT'}</span>
-          <span class="message-time">${formatTime(msg.time)}</span>
+          <span class="message-role role-${message.role}">${isUserMessage ? 'USER' : 'ASSISTANT'}</span>
+          <span class="message-time">${formatTime(message.time)}</span>
         </div>
-        ${thinking}
-        <div class="message-body">${formatContent(msg.content)}</div>
-        <div class="message-actions">${copyBtn}${regenBtn}</div>
+        ${thinkingHtml}
+        <div class="message-body">${formatContent(message.content)}</div>
+        <div class="message-actions">${copyButton}${regenButton}</div>
       </div>
     </div>`;
 }
 
-function copyMessage(btn, idx) {
-  const conv = getActiveConv();
-  if (!conv?.messages[idx]) return;
-  navigator.clipboard.writeText(conv.messages[idx].content).then(() => {
-    btn.textContent = '✓ COPIED';
-    btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = '⎘ COPY'; btn.classList.remove('copied'); }, 2000);
+// ── Message Actions ─────────────────────────────────────────────────────────
+
+/**
+ * Copies the text content of a message to the clipboard and briefly changes the button label.
+ *
+ * Args:
+ *   button       (HTMLElement) — The clicked button element (label is updated in place).
+ *   messageIndex (number)      — Index of the message in the active conversation.
+ */
+function copyMessageToClipboard(button, messageIndex) {
+  const conv = getActiveConversation();
+  if (!conv?.messages[messageIndex]) return;
+
+  navigator.clipboard.writeText(conv.messages[messageIndex].content).then(() => {
+    button.textContent = '✓ COPIED';
+    button.classList.add('copied');
+    setTimeout(() => {
+      button.textContent = '⎘ COPY';
+      button.classList.remove('copied');
+    }, 2000);
   });
 }
 
-async function regenerate() {
+/**
+ * Removes the last assistant message and re-runs the assistant to generate a new response.
+ */
+async function regenerateLastResponse() {
   if (isStreaming) return;
-  const conv = getActiveConv();
+
+  const conv = getActiveConversation();
   if (!conv || conv.messages.length < 2) return;
   if (conv.messages[conv.messages.length - 1].role !== 'assistant') return;
+
   conv.messages.pop();
   saveConversations();
   renderMessages();
   await runAssistant(conv);
 }
 
+// ── Send Message ────────────────────────────────────────────────────────────
+
+/**
+ * Reads the input field, appends a user message to the active (or new) conversation,
+ * and triggers an assistant response.
+ */
 async function sendMessage() {
   if (isStreaming) return;
-  const input = document.getElementById('messageInput');
-  const text = input.value.trim();
-  if (!text) return;
 
-  const model = document.getElementById('modelSelect').value;
-  if (!model) { showToast('✕ Select a model first', true); return; }
+  const inputEl  = document.getElementById('messageInput');
+  const userText = inputEl.value.trim();
+  if (!userText) return;
+
+  const selectedModel = document.getElementById('modelSelect').value;
+  if (!selectedModel) { showToast('✕ Select a model first', true); return; }
 
   const provider = getActiveProvider();
-  if (!provider) { showToast('✕ No active provider', true); return; }
+  if (!provider)  { showToast('✕ No active provider', true); return; }
 
   if (!activeConvId) newConversation();
 
-  const conv = getActiveConv();
-  conv.messages.push({ role: 'user', content: text, time: new Date().toISOString() });
+  const conv = getActiveConversation();
+  conv.messages.push({ role: 'user', content: userText, time: new Date().toISOString() });
 
-  if (conv.title === 'NEW SESSION')
-    conv.title = text.slice(0, 40) + (text.length > 40 ? '…' : '');
+  // Auto-title from first user message (truncated to 40 chars)
+  if (conv.title === 'NEW SESSION') {
+    conv.title = userText.slice(0, 40) + (userText.length > 40 ? '…' : '');
+  }
 
   saveConversations();
-  input.value = '';
-  input.style.height = '48px';
+  inputEl.value = '';
+  inputEl.style.height = MIN_INPUT_HEIGHT_PX + 'px';
   renderConversationList();
   renderMessages();
 
   await runAssistant(conv);
 }
 
-async function runAssistant(conv) {
-  const provider = getActiveProvider();
-  const model = document.getElementById('modelSelect').value;
-  const temperature = parseFloat(document.getElementById('tempSlider').value);
-  const topP = parseFloat(document.getElementById('topPSlider').value);
-  const maxTokensRaw = document.getElementById('maxTokens').value;
-  const maxTokens = maxTokensRaw ? parseInt(maxTokensRaw) : null;
-  const systemPrompt = document.getElementById('systemPrompt').value.trim();
+// ── Assistant Orchestration ─────────────────────────────────────────────────
 
+/**
+ * Reads current settings, appends a placeholder assistant message, calls the appropriate
+ * streaming function, and handles errors and cleanup.
+ *
+ * Args:
+ *   conv (object) — The active conversation record to append the response to.
+ */
+async function runAssistant(conv) {
+  const provider     = getActiveProvider();
+  const selectedModel = document.getElementById('modelSelect').value;
+  const streamParams  = buildStreamParams();
+
+  // Append empty placeholder so the UI can show a streaming cursor immediately
   conv.messages.push({ role: 'assistant', content: '', thinking: '', time: new Date().toISOString() });
   renderMessages();
 
   abortController = new AbortController();
-  setSendState(true);
+  setStreamingState(true);
 
-  const messages = [];
-  if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
-  conv.messages.slice(0, -1).forEach(m => messages.push({ role: m.role, content: m.content }));
-
-  const params = { temperature, topP, maxTokens, signal: abortController.signal };
+  const messageHistory = buildMessageHistory(conv, streamParams.systemPrompt);
 
   try {
     if (provider.proto === 'ollama') {
-      await streamOllama(provider, model, messages, params, conv);
+      await streamOllama(provider, selectedModel, messageHistory, { ...streamParams, signal: abortController.signal }, conv);
     } else {
-      await streamOpenAI(provider, model, messages, params, conv);
+      await streamOpenAI(provider, selectedModel, messageHistory, { ...streamParams, signal: abortController.signal }, conv);
     }
-  } catch (e) {
-    if (e.name === 'AbortError') {
-      // user stopped — finalize whatever we have
-      const last = conv.messages[conv.messages.length - 1];
-      if (!last.content && !last.thinking) last.content = '⊘ STOPPED';
-      saveConversations();
-      renderMessages();
-      showToast('⊘ STOPPED');
-    } else {
-      const last = conv.messages[conv.messages.length - 1];
-      last.content = '✕ ERROR: ' + e.message;
-      saveConversations();
-      renderMessages();
-      showToast('✕ ' + e.message, true);
-    }
+
+  } catch (streamError) {
+    handleStreamError(conv, streamError);
   } finally {
     abortController = null;
-    setSendState(false);
+    setStreamingState(false);
+
     setTimeout(() => {
-      if (!isStreaming) document.getElementById('tokenCount').textContent = 'TOKENS: —';
-    }, 5000);
+      if (!isStreaming) {
+        document.getElementById('tokenCount').textContent = 'TOKENS: —';
+      }
+    }, TOKEN_DISPLAY_RESET_MS);
   }
 }
 
+/**
+ * Reads the current sidebar controls and returns a params object for the streaming functions.
+ *
+ * Returns: (object) { temperature, topP, maxTokens, systemPrompt }
+ */
+function buildStreamParams() {
+  const rawMaxTokens = document.getElementById('maxTokens').value;
+
+  return {
+    temperature:  parseFloat(document.getElementById('tempSlider').value),
+    topP:         parseFloat(document.getElementById('topPSlider').value),
+    maxTokens:    rawMaxTokens ? parseInt(rawMaxTokens) : null,
+    systemPrompt: document.getElementById('systemPrompt').value.trim(),
+  };
+}
+
+/**
+ * Builds the messages array to send to the API, optionally prepending a system prompt.
+ * The last (placeholder) assistant message is excluded — it will be filled by streaming.
+ *
+ * Args:
+ *   conv         (object) — The active conversation.
+ *   systemPrompt (string) — Optional system prompt text.
+ *
+ * Returns: (object[]) Array of { role, content } message objects.
+ */
+function buildMessageHistory(conv, systemPrompt) {
+  const history = [];
+
+  if (systemPrompt) {
+    history.push({ role: 'system', content: systemPrompt });
+  }
+
+  // Exclude the last message (the empty placeholder we just added)
+  conv.messages.slice(0, -1).forEach(msg => {
+    history.push({ role: msg.role, content: msg.content });
+  });
+
+  return history;
+}
+
+/**
+ * Handles errors thrown during streaming: differentiates user-initiated stops from
+ * genuine errors and updates the conversation accordingly.
+ *
+ * Args:
+ *   conv        (object) — The active conversation.
+ *   streamError (Error)  — The caught error.
+ */
+function handleStreamError(conv, streamError) {
+  const lastMessage = conv.messages[conv.messages.length - 1];
+
+  if (streamError.name === 'AbortError') {
+    // User clicked Stop — preserve whatever content was received
+    if (!lastMessage.content && !lastMessage.thinking) {
+      lastMessage.content = '⊘ STOPPED';
+    }
+    showToast('⊘ STOPPED');
+  } else {
+    lastMessage.content = '✕ ERROR: ' + streamError.message;
+    showToast('✕ ' + streamError.message, true);
+    console.error('Streaming error:', streamError);
+  }
+
+  saveConversations();
+  renderMessages();
+}
+
+// ── Ollama Streaming ────────────────────────────────────────────────────────
+
+/**
+ * Streams a response from an Ollama-native endpoint, updating the UI on each chunk.
+ *
+ * Args:
+ *   provider       (object)   — Active provider record.
+ *   model          (string)   — Model name to use.
+ *   messages       (object[]) — Message history array.
+ *   params         (object)   — { temperature, topP, maxTokens, signal }
+ *   conv           (object)   — Active conversation to update.
+ */
 async function streamOllama(provider, model, messages, params, conv) {
   const { temperature, topP, maxTokens, signal } = params;
-  const options = { temperature };
-  if (topP < 1) options.top_p = topP;
-  if (maxTokens) options.num_predict = maxTokens;
 
-  const res = await fetch(`${provider.url}/api/chat`, {
+  const options = { temperature };
+  if (topP < 1)    options.top_p       = topP;
+  if (maxTokens)   options.num_predict  = maxTokens;
+
+  const response = await fetch(`${provider.url}/api/chat`, {
     method: 'POST',
     signal,
     headers: {
       'Content-Type': 'application/json',
-      ...(provider.key ? { 'Authorization': `Bearer ${provider.key}` } : {})
+      ...(provider.key ? { Authorization: `Bearer ${provider.key}` } : {}),
     },
-    body: JSON.stringify({ model, messages, stream: true, options })
+    body: JSON.stringify({ model, messages, stream: true, options }),
   });
 
-  if (!res.ok) throw new Error('HTTP ' + res.status);
+  if (!response.ok) throw new Error('HTTP ' + response.status);
 
-  const reader = res.body.getReader();
+  const reader  = response.body.getReader();
   const decoder = new TextDecoder();
-  let fullContent = '', fullThinking = '';
+  let accumulatedContent  = '';
+  let accumulatedThinking = '';
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const lines = decoder.decode(value).split('\n').filter(l => l.trim());
+
+      const lines = decoder.decode(value).split('\n').filter(line => line.trim());
+
       for (const line of lines) {
         try {
-          const data = JSON.parse(line);
-          if (data.message?.content) fullContent += data.message.content;
-          if (data.message?.thinking) fullThinking += data.message.thinking;
-          updateLiveMessage(conv, fullContent, fullThinking);
-        } catch {}
+          const chunk = JSON.parse(line);
+          if (chunk.message?.content)  accumulatedContent  += chunk.message.content;
+          if (chunk.message?.thinking) accumulatedThinking += chunk.message.thinking;
+          updateStreamingMessage(conv, accumulatedContent, accumulatedThinking);
+        } catch (parseError) {
+          // Malformed JSON chunk — skip and continue; Ollama occasionally sends partial lines
+          console.debug('Skipped unparseable Ollama chunk:', parseError.message);
+        }
       }
     }
   } finally {
     reader.cancel();
   }
 
-  finalizeMessage(conv, fullContent, fullThinking);
+  finalizeMessage(conv, accumulatedContent, accumulatedThinking);
 }
 
+// ── OpenAI-compatible Streaming ─────────────────────────────────────────────
+
+/**
+ * Streams a response from an OpenAI-compatible SSE endpoint, updating the UI on each chunk.
+ * Handles both `reasoning_content` (DeepSeek-R1 / SiliconFlow) and `<think>` tag formats.
+ *
+ * Args:
+ *   provider  (object)   — Active provider record.
+ *   model     (string)   — Model name to use.
+ *   messages  (object[]) — Message history array.
+ *   params    (object)   — { temperature, topP, maxTokens, signal }
+ *   conv      (object)   — Active conversation to update.
+ */
 async function streamOpenAI(provider, model, messages, params, conv) {
   const { temperature, topP, maxTokens, signal } = params;
-  const chatUrl = provider.url.endsWith('/v1') || provider.url.match(/\/v\d+$/)
-    ? `${provider.url}/chat/completions`
-    : `${provider.url}/v1/chat/completions`;
-  const body = { model, messages, stream: true, temperature };
-  if (topP < 1) body.top_p = topP;
-  if (maxTokens) body.max_tokens = maxTokens;
-  const res = await fetch(chatUrl, {
+
+  const chatUrl = buildChatCompletionsUrl(provider.url);
+  const requestBody = buildOpenAIRequestBody({ model, messages, temperature, topP, maxTokens });
+
+  const response = await fetch(chatUrl, {
     method: 'POST',
     signal,
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${provider.key || 'none'}`
+      'Content-Type':  'application/json',
+      Authorization:   `Bearer ${provider.key || 'none'}`,
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(requestBody),
   });
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || 'HTTP ' + res.status);
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(errorBody.error?.message || 'HTTP ' + response.status);
   }
 
-  const reader = res.body.getReader();
+  const { rawContent, reasoningContent } = await readOpenAIStream(response, conv);
+
+  // Determine final content and thinking from whichever format was returned
+  let finalContent, finalThinking;
+
+  if (reasoningContent) {
+    // Provider returned a dedicated reasoning_content field (DeepSeek-R1, SiliconFlow)
+    finalThinking = reasoningContent;
+    finalContent  = rawContent;
+  } else {
+    // Fall back to parsing <think>...</think> tags embedded in the content
+    ({ thinking: finalThinking, content: finalContent } = extractThinkTag(rawContent.trimStart()));
+  }
+
+  finalizeMessage(conv, finalContent, finalThinking);
+}
+
+/**
+ * Reads the SSE stream from an OpenAI-compatible response and accumulates content.
+ * Updates the live UI on each chunk.
+ *
+ * Args:
+ *   response (Response) — The Fetch API response object with the SSE body.
+ *   conv     (object)   — Active conversation for live UI updates.
+ *
+ * Returns: (Promise<{ rawContent: string, reasoningContent: string }>)
+ */
+async function readOpenAIStream(response, conv) {
+  const reader  = response.body.getReader();
   const decoder = new TextDecoder();
-  let fullRaw = '';
-  let fullReasoning = '';
-  let buffer = '';
+
+  let rawContent       = '';
+  let reasoningContent = '';
+  let buffer           = '';
 
   try {
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed === 'data: [DONE]') continue;
-      if (!trimmed.startsWith('data: ')) continue;
-      try {
-        const data = JSON.parse(trimmed.slice(6));
-        const delta = data.choices?.[0]?.delta;
-        if (!delta) continue;
-        console.log('[SSE delta]', JSON.stringify(delta));
-        // reasoning_content field (SiliconFlow / DeepSeek-R1 native etc.)
-        if (delta.reasoning_content) fullReasoning += delta.reasoning_content;
-        if (delta.content) fullRaw += delta.content;
-        // merge: reasoning_content takes priority over <think> tag parsing
-        if (fullReasoning) {
-          updateLiveMessage(conv, fullRaw, fullReasoning);
-        } else {
-          const { thinking, content } = extractThinkTag(fullRaw.trimStart());
-          updateLiveMessage(conv, content, thinking);
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+
+      // Keep the last (potentially incomplete) line in the buffer
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed === 'data: [DONE]') continue;
+        if (!trimmed.startsWith('data: '))         continue;
+
+        try {
+          const data  = JSON.parse(trimmed.slice(6));
+          const delta = data.choices?.[0]?.delta;
+          if (!delta) continue;
+
+          if (delta.reasoning_content) reasoningContent += delta.reasoning_content;
+          if (delta.content)           rawContent       += delta.content;
+
+          // Live update: use reasoning_content if present, otherwise parse <think> tags on the fly
+          if (reasoningContent) {
+            updateStreamingMessage(conv, rawContent, reasoningContent);
+          } else {
+            const { thinking, content } = extractThinkTag(rawContent.trimStart());
+            updateStreamingMessage(conv, content, thinking);
+          }
+        } catch (parseError) {
+          // Malformed SSE data line — skip and continue
+          console.debug('Skipped unparseable SSE line:', parseError.message);
         }
-      } catch {}
+      }
     }
-  }
-
-  let finalThinking, finalContent;
   } finally {
     reader.cancel();
   }
 
-  if (fullReasoning) {
-    finalThinking = fullReasoning;
-    finalContent = fullRaw;
-  } else {
-    ({ thinking: finalThinking, content: finalContent } = extractThinkTag(fullRaw.trimStart()));
-  }
-  finalizeMessage(conv, finalContent, finalThinking);
+  return { rawContent, reasoningContent };
 }
 
+/**
+ * Builds the chat completions URL for a given provider base URL.
+ * Detects whether the URL already includes a version segment to avoid double-appending.
+ *
+ * Args:
+ *   baseUrl (string) — Provider base URL (no trailing slash).
+ *
+ * Returns: (string) Full URL to the chat completions endpoint.
+ */
+function buildChatCompletionsUrl(baseUrl) {
+  const hasVersionSuffix = baseUrl.endsWith('/v1') || /\/v\d+$/.test(baseUrl);
+  return hasVersionSuffix
+    ? `${baseUrl}/chat/completions`
+    : `${baseUrl}/v1/chat/completions`;
+}
+
+/**
+ * Builds the request body for an OpenAI-compatible chat completions call.
+ *
+ * Args:
+ *   options (object) — { model, messages, temperature, topP, maxTokens }
+ *
+ * Returns: (object) Request body suitable for JSON serialization.
+ */
+function buildOpenAIRequestBody({ model, messages, temperature, topP, maxTokens }) {
+  const body = { model, messages, stream: true, temperature };
+  if (topP < 1)   body.top_p     = topP;
+  if (maxTokens)  body.max_tokens = maxTokens;
+  return body;
+}
+
+// ── Think-tag Parser ────────────────────────────────────────────────────────
+
+/**
+ * Extracts thinking content from raw model output that uses <think>...</think> tags.
+ * Handles three formats: complete tags, incomplete tags (still streaming), and bare </think>.
+ *
+ * Args:
+ *   raw (string) — Raw model output, potentially containing <think> tags.
+ *
+ * Returns: (object) { thinking: string, content: string }
+ */
 function extractThinkTag(raw) {
-  // Case 1: full <think>...</think> wrapper (Qwen3 etc.)
+  // Case 1: Complete <think>...</think> block (Qwen3 and similar)
   const fullMatch = raw.match(/^<think>([\s\S]*?)<\/think>\s*/);
   if (fullMatch) {
     return {
       thinking: fullMatch[1].trim(),
-      content: raw.slice(fullMatch[0].length)
+      content:  raw.slice(fullMatch[0].length),
     };
   }
-  // Case 2: <think> present but </think> not yet arrived — still streaming
+
+  // Case 2: <think> is open but </think> hasn't arrived yet — still streaming
   if (raw.startsWith('<think>') && !raw.includes('</think>')) {
     return { thinking: raw.slice(7).trim(), content: '' };
   }
-  // Case 3: SiliconFlow format — no opening tag, bare </think> as separator
-  const bareClose = raw.indexOf('<\/think>');
-  if (bareClose !== -1) {
+
+  // Case 3: SiliconFlow format — content before a bare </think> separator, no opening tag
+  const bareCloseIndex = raw.indexOf('</think>');
+  if (bareCloseIndex !== -1) {
     return {
-      thinking: raw.slice(0, bareClose).trim(),
-      content: raw.slice(bareClose + 8).trimStart()
+      thinking: raw.slice(0, bareCloseIndex).trim(),
+      content:  raw.slice(bareCloseIndex + '</think>'.length).trimStart(),
     };
   }
+
+  // No think tags found
   return { thinking: '', content: raw };
 }
 
-function updateLiveMessage(conv, content, thinking) {
-  const last = conv.messages[conv.messages.length - 1];
-  last.content = content;
-  last.thinking = thinking;
+// ── Live Message Updates ────────────────────────────────────────────────────
 
-  const area = document.getElementById('chatArea');
-  const msgs = area.querySelectorAll('.message');
-  const lastMsg = msgs[msgs.length - 1];
-  if (!lastMsg) return;
+/**
+ * Updates the last message bubble in the DOM with new streaming content,
+ * without re-rendering the entire message list.
+ *
+ * Args:
+ *   conv      (object) — Active conversation (its last message is updated in place).
+ *   content   (string) — Accumulated response text so far.
+ *   thinking  (string) — Accumulated chain-of-thought text so far (may be empty).
+ */
+function updateStreamingMessage(conv, content, thinking) {
+  const lastMessage = conv.messages[conv.messages.length - 1];
+  lastMessage.content  = content;
+  lastMessage.thinking = thinking;
 
-  const body = lastMsg.querySelector('.message-body');
-  if (body) body.innerHTML = formatContent(content) + '<span class="cursor"></span>';
+  const chatArea      = document.getElementById('chatArea');
+  const messageBubbles = chatArea.querySelectorAll('.message');
+  const lastBubble    = messageBubbles[messageBubbles.length - 1];
+  if (!lastBubble) return;
+
+  const bodyEl = lastBubble.querySelector('.message-body');
+  if (bodyEl) {
+    bodyEl.innerHTML = formatContent(content) + '<span class="cursor"></span>';
+  }
 
   if (thinking) {
-    let thinkEl = lastMsg.querySelector('.thinking-block');
+    let thinkEl = lastBubble.querySelector('.thinking-block');
+
     if (thinkEl) {
       thinkEl.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div>${escapeHtml(thinking)}`;
     } else {
       thinkEl = document.createElement('div');
       thinkEl.className = 'thinking-block';
       thinkEl.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div>${escapeHtml(thinking)}`;
-      body.parentNode.insertBefore(thinkEl, body);
+      bodyEl.parentNode.insertBefore(thinkEl, bodyEl);
     }
   }
 
-if (autoScroll) area.scrollTop = area.scrollHeight;
-  document.getElementById('tokenCount').textContent = `TOKENS: ~${Math.ceil((content.length + (thinking?.length || 0)) / 4)}`;
+  if (shouldAutoScroll) chatArea.scrollTop = chatArea.scrollHeight;
+
+  const totalChars = content.length + (thinking?.length || 0);
+  document.getElementById('tokenCount').textContent =
+    `TOKENS: ~${Math.ceil(totalChars / APPROX_CHARS_PER_TOKEN)}`;
 }
 
+/**
+ * Writes the final content and thinking to the conversation, saves, and re-renders.
+ *
+ * Args:
+ *   conv     (object) — Active conversation.
+ *   content  (string) — Final response content.
+ *   thinking (string) — Final chain-of-thought content (may be empty).
+ */
 function finalizeMessage(conv, content, thinking) {
-  const last = conv.messages[conv.messages.length - 1];
-  last.content = content;
-  last.thinking = thinking;
+  const lastMessage    = conv.messages[conv.messages.length - 1];
+  lastMessage.content  = content;
+  lastMessage.thinking = thinking;
+
   saveConversations();
   renderMessages();
   renderConversationList();
 }
 
-function handleKeydown(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+// ── Input Handling ──────────────────────────────────────────────────────────
+
+/**
+ * Handles keydown events in the message textarea.
+ * Enter sends; Shift+Enter inserts a newline.
+ *
+ * Args:
+ *   event (KeyboardEvent) — The keydown event.
+ */
+function handleInputKeydown(event) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    sendMessage();
+  }
 }
 
-function autoResize(el) {
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+/**
+ * Auto-grows the textarea as the user types, capped at MAX_INPUT_HEIGHT_PX.
+ *
+ * Args:
+ *   textarea (HTMLTextAreaElement) — The textarea element to resize.
+ */
+function autoResizeTextarea(textarea) {
+  textarea.style.height = 'auto';
+  textarea.style.height = Math.min(textarea.scrollHeight, MAX_INPUT_HEIGHT_PX) + 'px';
 }
 
+// ── Content Formatting ──────────────────────────────────────────────────────
+
+/**
+ * Converts plain model output to safe HTML with basic markdown-ish formatting.
+ * Handles fenced code blocks, inline code, bold, and newlines.
+ *
+ * Args:
+ *   text (string) — Raw content string.
+ *
+ * Returns: (string) HTML-safe string ready for innerHTML.
+ */
 function formatContent(text) {
   if (!text) return '';
+
   return escapeHtml(text)
     .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br>');
+    .replace(/`([^`]+)`/g,        '<code>$1</code>')
+    .replace(/\*\*(.*?)\*\*/g,    '<strong>$1</strong>')
+    .replace(/\n/g,               '<br>');
 }
 
+/**
+ * Escapes a string for safe insertion into HTML, preventing XSS.
+ *
+ * Args:
+ *   str (string) — The raw string to escape.
+ *
+ * Returns: (string) HTML-safe version of the string.
+ */
 function escapeHtml(str) {
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/&/g,  '&amp;')
+    .replace(/</g,  '&lt;')
+    .replace(/>/g,  '&gt;')
+    .replace(/"/g,  '&quot;');
 }
 
-function formatDate(iso) {
-  return new Date(iso).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+// ── Date / Time Formatting ──────────────────────────────────────────────────
+
+/**
+ * Formats an ISO date string as MM/DD for use in conversation list items.
+ *
+ * Args:
+ *   isoDate (string) — ISO 8601 date string.
+ *
+ * Returns: (string) Locale-formatted date, e.g. "03/23".
+ */
+function formatDate(isoDate) {
+  return new Date(isoDate).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
 }
 
-function formatTime(iso) {
-  return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+/**
+ * Formats an ISO date string as HH:MM for use in message headers.
+ *
+ * Args:
+ *   isoDate (string) — ISO 8601 date string.
+ *
+ * Returns: (string) Locale-formatted time, e.g. "14:05".
+ */
+function formatTime(isoDate) {
+  return new Date(isoDate).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 }
 
-let toastTimer;
-function showToast(msg, isError = false) {
-  const existing = document.querySelector('.toast');
-  if (existing) existing.remove();
-  clearTimeout(toastTimer);
-  const toast = document.createElement('div');
-  toast.className = 'toast';
-  toast.style.borderColor = isError ? 'var(--danger)' : 'var(--accent2)';
-  toast.style.color = isError ? 'var(--danger)' : 'var(--accent2)';
-  toast.textContent = msg;
-  document.body.appendChild(toast);
-  toastTimer = setTimeout(() => toast.remove(), 3000);
+// ── Toast Notification ──────────────────────────────────────────────────────
+
+let activeToastTimer;
+
+/**
+ * Briefly shows a toast notification at the bottom-right of the screen.
+ *
+ * Args:
+ *   message      (string)  — Text to display.
+ *   isErrorToast (boolean) — If true, colors the toast red (danger style).
+ */
+function showToast(message, isErrorToast = false) {
+  const existingToast = document.querySelector('.toast');
+  if (existingToast) existingToast.remove();
+  clearTimeout(activeToastTimer);
+
+  const toastEl = document.createElement('div');
+  toastEl.className = 'toast';
+  toastEl.style.borderColor = isErrorToast ? 'var(--danger)' : 'var(--accent2)';
+  toastEl.style.color       = isErrorToast ? 'var(--danger)' : 'var(--accent2)';
+  toastEl.textContent = message;
+
+  document.body.appendChild(toastEl);
+  activeToastTimer = setTimeout(() => toastEl.remove(), TOAST_DISPLAY_MS);
 }
 
-document.getElementById('providerModal').addEventListener('click', function(e) {
-  if (e.target === this) closeModal();
+// ── Auto-Scroll Behavior ────────────────────────────────────────────────────
+
+/**
+ * Wires up scroll event listeners so auto-scroll disengages when the user scrolls
+ * up and re-engages when they return near the bottom.
+ */
+function initAutoScrollBehavior() {
+  const chatArea = document.getElementById('chatArea');
+  let touchStartY = 0;
+
+  // Disable auto-scroll on upward wheel or touch swipe
+  chatArea.addEventListener('wheel', event => {
+    if (event.deltaY < 0) shouldAutoScroll = false;
+  }, { passive: true });
+
+  chatArea.addEventListener('touchstart', event => {
+    touchStartY = event.touches[0].clientY;
+  }, { passive: true });
+
+  chatArea.addEventListener('touchmove', event => {
+    const isScrollingUp = event.touches[0].clientY > touchStartY;
+    if (isScrollingUp) shouldAutoScroll = false;
+  }, { passive: true });
+
+  // Re-engage auto-scroll when the user scrolls back near the bottom
+  chatArea.addEventListener('scroll', () => {
+    const distanceFromBottom = chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight;
+    if (distanceFromBottom < AUTO_SCROLL_THRESHOLD_PX) shouldAutoScroll = true;
+  }, { passive: true });
+}
+
+// ── Modal Outside-Click Dismissal ───────────────────────────────────────────
+
+document.getElementById('providerModal').addEventListener('click', function(event) {
+  if (event.target === this) closeModal();
 });
-// ── AUTO-SCROLL STATE ──
-let autoScroll = true;
 
-(function initScrollBehavior() {
-  const area = document.getElementById('chatArea');
-  area.addEventListener('wheel', (e) => {
-    if (e.deltaY < 0) autoScroll = false;
-  }, { passive: true });
-  let _ty = 0;
-  area.addEventListener('touchstart', (e) => { _ty = e.touches[0].clientY; }, { passive: true });
-  area.addEventListener('touchmove',  (e) => { if (e.touches[0].clientY > _ty) autoScroll = false; }, { passive: true });
-  area.addEventListener('scroll', () => {
-    if (area.scrollHeight - area.scrollTop - area.clientHeight < 80) autoScroll = true;
-  }, { passive: true });
-})();
-// ── INIT ──
+// ── Initialization ──────────────────────────────────────────────────────────
+
 loadSettings();
 renderProviderList();
 renderConversationList();
 renderMessages();
+initAutoScrollBehavior();
 
-if (activeProviderId && providers.find(p => p.id === activeProviderId)) {
+if (activeProviderId && providers.find(provider => provider.id === activeProviderId)) {
   activateProvider(activeProviderId);
 } else if (providers.length > 0) {
   activateProvider(providers[0].id);
 } else {
-  updateBadge();
+  updateProviderBadge();
 }
 </script>
 </body>
