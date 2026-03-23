@@ -5,6 +5,8 @@
   Depends: Google Fonts CDN (Share Tech Mono, Rajdhani, Orbitron); localStorage for persistence.
   Notes:   Single-file app — HTML, CSS, and JS are intentionally co-located.
            Supports Ollama native protocol and OpenAI-compatible APIs.
+           Images are compressed client-side before storage to stay within localStorage limits.
+           Ollama and OpenAI use different wire formats for vision — converted at send time.
 -->
 <html lang="zh">
 <head>
@@ -17,19 +19,19 @@
 
   /* ── Design Tokens — Rosé Pine Dawn ───────────────────────────────── */
   :root {
-    --bg:           #faf4ed;  /* Dawn Base     — main canvas, warm ivory      */
-    --bg2:          #fffaf3;  /* Dawn Surface  — sidebar / header, cream      */
-    --bg3:          #f2e9e1;  /* Dawn Overlay  — inputs / chips, warm grey    */
-    --line:         #f4ede8;  /* Dawn Highlight Low  — subtle dividers        */
-    --line-bright:  #dfdad9;  /* Dawn Highlight Med  — visible borders        */
-    --accent:       #286983;  /* Dawn Pine     — primary interactive, teal    */
-    --accent2:      #56949f;  /* Dawn Foam     — secondary / success          */
-    --accent3:      #ea9d34;  /* Dawn Gold     — user / warm, amber           */
-    --text:         #797593;  /* Dawn Subtle   — body copy                    */
-    --text-dim:     #9893a5;  /* Dawn Muted    — placeholders / meta          */
-    --text-bright:  #575279;  /* Dawn Text     — prominent labels             */
-    --user-bg:      #f4ede8;  /* Dawn Highlight Low — user message bubble     */
-    --danger:       #b4637a;  /* Dawn Love     — destructive actions, rose    */
+    --bg:           #faf4ed;
+    --bg2:          #fffaf3;
+    --bg3:          #f2e9e1;
+    --line:         #f4ede8;
+    --line-bright:  #dfdad9;
+    --accent:       #286983;
+    --accent2:      #56949f;
+    --accent3:      #ea9d34;
+    --text:         #797593;
+    --text-dim:     #9893a5;
+    --text-bright:  #575279;
+    --user-bg:      #f4ede8;
+    --danger:       #b4637a;
     --grid-size:    40px;
   }
 
@@ -46,7 +48,6 @@
     position:    relative;
   }
 
-  /* Grid overlay */
   body::before {
     content: '';
     position: fixed; inset: 0;
@@ -59,7 +60,6 @@
     z-index: 0;
   }
 
-  /* Scanline overlay */
   body::after {
     content: '';
     position: fixed; inset: 0;
@@ -173,6 +173,14 @@
     padding-left: 6px;
   }
 
+  /* Vision capability indicator in the badge */
+  .provider-badge .vision-tag {
+    font-size: 9px;
+    color: var(--accent3);
+    border-left: 1px solid var(--line-bright);
+    padding-left: 6px;
+  }
+
   /* ── Sidebar ───────────────────────────────────────────────────────── */
   .sidebar {
     background: var(--bg2);
@@ -183,7 +191,6 @@
     position: relative;
   }
 
-  /* Animated scan line on the right edge */
   .sidebar::before {
     content: '';
     position: absolute;
@@ -495,6 +502,46 @@
     background: rgba(86,148,159,0.07);
   }
 
+  /* Vision toggle checkbox row */
+  .vision-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--line-bright);
+    background: var(--bg3);
+    cursor: pointer;
+    transition: all 0.15s;
+    clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+  }
+
+  .vision-toggle-row:hover { border-color: var(--accent3); }
+  .vision-toggle-row.enabled { border-color: var(--accent3); background: rgba(234,157,52,0.07); }
+
+  .vision-toggle-row input[type="checkbox"] { display: none; }
+
+  .vision-checkbox-indicator {
+    width: 14px; height: 14px;
+    border: 1px solid var(--line-bright);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    color: var(--accent3);
+    flex-shrink: 0;
+    transition: border-color 0.15s;
+  }
+
+  .vision-toggle-row.enabled .vision-checkbox-indicator { border-color: var(--accent3); }
+
+  .vision-toggle-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    flex: 1;
+  }
+
+  .vision-toggle-row.enabled .vision-toggle-label { color: var(--accent3); }
+
   .modal-footer {
     padding: 14px 20px;
     border-top: 1px solid var(--line);
@@ -770,7 +817,6 @@
     clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
   }
 
-  /* User bubble has mirrored clip corners */
   .message.user .message-body {
     background: var(--user-bg);
     border-color: rgba(234,157,52,0.25);
@@ -778,6 +824,30 @@
   }
 
   .message.assistant .message-body { border-color: rgba(40,105,131,0.18); }
+
+  /* ── Message Images ────────────────────────────────────────────────── */
+  /* Images attached to a user message, shown above the text content */
+  .message-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .message-image-thumb {
+    width: 120px;
+    height: 80px;
+    object-fit: cover;
+    border: 1px solid rgba(234,157,52,0.3);
+    cursor: zoom-in;
+    transition: border-color 0.15s, transform 0.15s;
+    clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+  }
+
+  .message-image-thumb:hover {
+    border-color: var(--accent3);
+    transform: scale(1.03);
+  }
 
   .message-actions {
     display: flex;
@@ -833,7 +903,6 @@
     opacity: 0.7;
   }
 
-  /* Blinking cursor shown during streaming */
   .cursor {
     display: inline-block;
     width: 8px; height: 14px;
@@ -884,6 +953,59 @@
     opacity: 0.5;
   }
 
+  /* ── Pending Image Previews ────────────────────────────────────────── */
+  /* Shown above the text input when images are queued for the next message */
+  .pending-images-bar {
+    display: none;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    background: var(--bg3);
+    border: 1px solid var(--line-bright);
+    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+  }
+
+  .pending-images-bar.has-images { display: flex; }
+
+  .pending-image-item {
+    position: relative;
+    width: 56px; height: 56px;
+    flex-shrink: 0;
+  }
+
+  .pending-image-thumb {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    border: 1px solid rgba(234,157,52,0.4);
+    clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px));
+  }
+
+  .pending-image-remove {
+    position: absolute;
+    top: -4px; right: -4px;
+    width: 16px; height: 16px;
+    background: var(--danger);
+    border: none;
+    color: white;
+    font-size: 10px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    clip-path: polygon(0 0, calc(100% - 3px) 0, 100% 3px, 100% 100%, 3px 100%, 0 calc(100% - 3px));
+    transition: opacity 0.15s;
+  }
+
+  .pending-image-remove:hover { opacity: 0.8; }
+
+  .pending-images-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    align-self: center;
+  }
+
   .input-wrapper { display: flex; gap: 10px; align-items: flex-end; }
   .input-box     { flex: 1; position: relative; }
 
@@ -918,6 +1040,29 @@
   textarea:focus       { border-color: var(--accent); }
   textarea::placeholder { color: var(--text-dim); }
 
+  /* Attach image button — sits alongside the send/stop buttons */
+  .attach-btn {
+    width: 48px; height: 48px;
+    background: transparent;
+    border: 1px solid var(--line-bright);
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+    font-size: 18px;
+  }
+
+  .attach-btn:hover  { border-color: var(--accent3); color: var(--accent3); background: rgba(234,157,52,0.06); }
+  /* Highlight when images are pending, to remind the user they're attached */
+  .attach-btn.has-images { border-color: var(--accent3); color: var(--accent3); }
+
+  /* Hidden file input triggered by the attach button */
+  #imageFileInput { display: none; }
+
   .send-btn {
     width: 48px; height: 48px;
     background: transparent;
@@ -945,6 +1090,51 @@
     color: var(--text-dim);
     letter-spacing: 1px;
   }
+
+  /* ── Image Lightbox ────────────────────────────────────────────────── */
+  /* Full-screen overlay for viewing an image at full size */
+  .lightbox-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(34,30,50,0.92);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-out;
+    animation: fadeIn 0.15s ease;
+  }
+
+  .lightbox-overlay.open { display: flex; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .lightbox-img {
+    max-width: 90vw;
+    max-height: 90vh;
+    object-fit: contain;
+    border: 1px solid rgba(40,105,131,0.4);
+    box-shadow: 0 0 60px rgba(40,105,131,0.2);
+  }
+
+  .lightbox-close {
+    position: absolute;
+    top: 20px; right: 24px;
+    background: none;
+    border: 1px solid var(--line-bright);
+    color: var(--text-dim);
+    font-size: 20px;
+    cursor: pointer;
+    width: 36px; height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    transition: color 0.15s;
+    clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+  }
+
+  .lightbox-close:hover { color: var(--danger); }
 
   /* ── Decorative Corners ────────────────────────────────────────────── */
   .corner-tl, .corner-br {
@@ -992,9 +1182,6 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ── Settings Modal Fields ─────────────────────────────────────────── */
-
-  /* Reuses .adv-row / .adv-row-label / .adv-val / .adv-hint patterns
-     but scoped inside the modal so the sidebar stays clean.           */
   .adv-row {
     padding: 14px 0;
     border-bottom: 1px solid rgba(223,218,217,0.9);
@@ -1067,6 +1254,12 @@
 </head>
 <body>
 
+<!-- ── Image Lightbox ─────────────────────────────────────────────────── -->
+<div class="lightbox-overlay" id="lightboxOverlay" onclick="closeLightbox()">
+  <button class="lightbox-close" onclick="closeLightbox()">×</button>
+  <img class="lightbox-img" id="lightboxImg" src="" alt="Full size image">
+</div>
+
 <!-- ── Confirm Modal ─────────────────────────────────────────────────── -->
 <div class="modal-overlay" id="confirmModal">
   <div class="modal" style="width:360px">
@@ -1123,6 +1316,19 @@
         <div class="field-label">API Key <span style="opacity:0.4;font-size:9px">(OPTIONAL)</span></div>
         <input type="password" id="providerKey" placeholder="sk-... or leave empty for local">
       </div>
+
+      <!-- Vision capability toggle: user must declare this manually since there's
+           no reliable programmatic way to detect vision support across all providers -->
+      <div>
+        <div class="field-label">Vision / Image Support</div>
+        <label class="vision-toggle-row" id="visionToggleRow" onclick="toggleVisionSupport()">
+          <input type="checkbox" id="providerVision">
+          <div class="vision-checkbox-indicator" id="visionCheckIndicator"></div>
+          <span class="vision-toggle-label">Model supports image input</span>
+        </label>
+        <div class="field-hint">Enable to allow attaching images to messages. Only works with vision-capable models (e.g. llava, llama3.2-vision, gpt-4o).</div>
+      </div>
+
     </div>
 
     <div class="modal-footer">
@@ -1141,7 +1347,6 @@
     </div>
     <div class="modal-body">
 
-      <!-- System Prompt -->
       <div>
         <div class="field-label">System Prompt</div>
         <textarea class="system-textarea" id="systemPrompt"
@@ -1150,7 +1355,6 @@
         <div class="field-hint">Injected as the first message in every request. Leave blank to omit.</div>
       </div>
 
-      <!-- Sliders + Max Tokens -->
       <div style="border-top:1px solid var(--line);padding-top:4px">
         <div class="adv-row">
           <div class="adv-row-label">
@@ -1209,6 +1413,7 @@
       <div id="activeBadge" class="provider-badge" style="display:none">
         <span id="badgeName">—</span>
         <span class="proto-tag" id="badgeProto">—</span>
+        <span class="vision-tag" id="badgeVision" style="display:none">👁 VISION</span>
       </div>
     </div>
   </header>
@@ -1245,13 +1450,23 @@
   <main class="main">
     <div class="chat-area" id="chatArea"></div>
     <div class="input-area">
+      <!-- Pending image thumbnails shown here before the message is sent -->
+      <div class="pending-images-bar" id="pendingImagesBar">
+        <span class="pending-images-label">ATTACHED:</span>
+      </div>
       <div class="input-wrapper">
         <div class="input-box">
           <textarea id="messageInput" placeholder="ENTER QUERY..."
             rows="1"
             onkeydown="handleInputKeydown(event)"
-            oninput="autoResizeTextarea(this)"></textarea>
+            oninput="autoResizeTextarea(this)"
+            onpaste="handlePaste(event)"></textarea>
         </div>
+        <!-- Hidden file input; triggered by the attach button below -->
+        <input type="file" id="imageFileInput" accept="image/*" multiple
+               onchange="handleImageFileSelection(event)">
+        <button class="attach-btn" id="attachBtn" onclick="triggerImageFilePicker()"
+                title="Attach image (or paste from clipboard)">🖼</button>
         <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Enter to send">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="22" y1="2" x2="11" y2="13"/>
@@ -1266,7 +1481,7 @@
       </div>
       <div class="input-meta">
         <span id="tokenCount">TOKENS: —</span>
-        <span>ENTER TO SEND · SHIFT+ENTER FOR NEWLINE</span>
+        <span>ENTER TO SEND · SHIFT+ENTER NEWLINE · PASTE IMAGE</span>
       </div>
     </div>
   </main>
@@ -1288,16 +1503,27 @@
  * Depends: localStorage for persistence; DOM elements defined in the HTML above.
  * Notes:   All provider credentials are stored in localStorage (plain text).
  *          Streaming uses ReadableStream from the Fetch API.
+ *          Images are compressed via canvas before storage to stay within the ~5MB
+ *          localStorage limit. Ollama and OpenAI use different wire formats for
+ *          vision input; conversion happens in buildMessageHistory().
  */
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const TOAST_DISPLAY_MS         = 3000;  // How long a toast notification stays visible
-const AUTO_SCROLL_THRESHOLD_PX = 80;    // Distance from bottom before auto-scroll re-engages
-const APPROX_CHARS_PER_TOKEN   = 4;     // Rough estimate for live token counter
-const MAX_INPUT_HEIGHT_PX      = 160;   // Max height for the auto-growing textarea
-const TOKEN_DISPLAY_RESET_MS   = 5000;  // How long after streaming ends to clear token count
-const MIN_INPUT_HEIGHT_PX      = 48;    // Default / minimum textarea height
+const TOAST_DISPLAY_MS             = 3000;
+const AUTO_SCROLL_THRESHOLD_PX     = 80;
+const APPROX_CHARS_PER_TOKEN       = 4;
+const MAX_INPUT_HEIGHT_PX          = 160;
+const TOKEN_DISPLAY_RESET_MS       = 5000;
+const MIN_INPUT_HEIGHT_PX          = 48;
+
+// Image compression: resize to this long-edge before base64 encoding.
+// Keeps individual images under ~200KB and prevents localStorage overflow.
+const IMAGE_COMPRESS_MAX_EDGE_PX   = 1024;
+const IMAGE_COMPRESS_QUALITY       = 0.82;   // JPEG quality (0–1)
+const IMAGE_COMPRESS_OUTPUT_FORMAT = 'image/jpeg';
+
+const MAX_PENDING_IMAGES           = 4;       // Caps per-message image count
 
 const PROTO_COLORS = {
   ollama: '#286983',
@@ -1309,7 +1535,6 @@ const PROTO_HINTS = {
   openai: 'OpenAI-compatible /v1/chat/completions — Groq, Together, etc.',
 };
 
-// Provider presets: name, base URL, protocol, and a short tag for the chip.
 const PROVIDER_PRESETS = [
   { name: 'Groq',      url: 'https://api.groq.com/openai',                             proto: 'openai', tag: 'FREE·快'  },
   { name: 'Mistral',   url: 'https://api.mistral.ai/v1',                               proto: 'openai', tag: 'FREE·EU'  },
@@ -1334,15 +1559,18 @@ const STORAGE_KEYS = {
 
 // ── Application State ───────────────────────────────────────────────────────
 
-let providers        = JSON.parse(localStorage.getItem(STORAGE_KEYS.providers)      || '[]');
-let activeProviderId = localStorage.getItem(STORAGE_KEYS.activeProvider)            || null;
-let conversations    = JSON.parse(localStorage.getItem(STORAGE_KEYS.conversations)  || '[]');
-let activeConvId     = null;
-let isStreaming      = false;
+let providers         = JSON.parse(localStorage.getItem(STORAGE_KEYS.providers)      || '[]');
+let activeProviderId  = localStorage.getItem(STORAGE_KEYS.activeProvider)            || null;
+let conversations     = JSON.parse(localStorage.getItem(STORAGE_KEYS.conversations)  || '[]');
+let activeConvId      = null;
+let isStreaming        = false;
 let editingProviderId = null;
-let selectedProto    = 'ollama';
-let abortController  = null;
-let shouldAutoScroll = true;  // Re-engage auto-scroll when user scrolls near the bottom
+let selectedProto     = 'ollama';
+let abortController   = null;
+let shouldAutoScroll  = true;
+
+// Images queued for the next outgoing message. Each entry is a data-URL string.
+let pendingImages = [];
 
 // ── Confirm Dialog ──────────────────────────────────────────────────────────
 
@@ -1350,14 +1578,13 @@ let shouldAutoScroll = true;  // Re-engage auto-scroll when user scrolls near th
  * Shows a custom modal confirmation dialog instead of the browser's native confirm().
  *
  * Args:
- *   message (string) — The question to display to the user.
+ *   message (string) — The question to display.
  *
- * Returns: (Promise<boolean>) true if the user confirmed, false otherwise.
+ * Returns: (Promise<boolean>) true if confirmed, false otherwise.
  */
 function showConfirm(message) {
   return new Promise(resolve => {
     document.getElementById('confirmMsg').textContent = message;
-
     const overlay = document.getElementById('confirmModal');
     overlay.classList.add('open');
 
@@ -1370,9 +1597,9 @@ function showConfirm(message) {
       resolve(result);
     }
 
-    function onConfirm()              { closeWithResult(true); }
-    function onCancel()               { closeWithResult(false); }
-    function onOverlayClick(event)    { if (event.target === overlay) closeWithResult(false); }
+    function onConfirm()           { closeWithResult(true);  }
+    function onCancel()            { closeWithResult(false); }
+    function onOverlayClick(event) { if (event.target === overlay) closeWithResult(false); }
 
     document.getElementById('confirmYes').addEventListener('click', onConfirm);
     document.getElementById('confirmNo').addEventListener('click', onCancel);
@@ -1384,7 +1611,7 @@ function showConfirm(message) {
 // ── Streaming Control ───────────────────────────────────────────────────────
 
 /**
- * Toggles the send/stop button visibility and disables the send button while streaming.
+ * Toggles send/stop button visibility and disables the send button while streaming.
  *
  * Args:
  *   isCurrentlyStreaming (boolean) — true to enter streaming state, false to exit.
@@ -1397,7 +1624,7 @@ function setStreamingState(isCurrentlyStreaming) {
 
 /**
  * Aborts the in-flight streaming request, if one exists.
- * The AbortError is caught in runAssistant and handled gracefully.
+ * The resulting AbortError is caught in runAssistant() and handled gracefully.
  */
 function stopStreaming() {
   if (abortController) {
@@ -1409,26 +1636,35 @@ function stopStreaming() {
 // ── Provider Helpers ────────────────────────────────────────────────────────
 
 /**
- * Returns the currently active provider object, or null if none is selected.
+ * Returns the active provider object, or null if none is selected.
  *
- * Returns: (object|null) provider record from the providers array.
+ * Returns: (object|null)
  */
 function getActiveProvider() {
   return providers.find(provider => provider.id === activeProviderId) || null;
 }
 
+/**
+ * Returns true if the active provider has vision support enabled.
+ *
+ * Returns: (boolean)
+ */
+function isVisionEnabled() {
+  return Boolean(getActiveProvider()?.supportsVision);
+}
+
 // ── Settings Persistence ────────────────────────────────────────────────────
 
 /**
- * Reads the current sidebar settings and persists them to localStorage.
+ * Reads the current settings controls and persists them to localStorage.
  */
 function saveSettings() {
   const rawMaxTokens = document.getElementById('maxTokens').value;
 
   const settings = {
-    temperature: parseFloat(document.getElementById('tempSlider').value),
-    topP:        parseFloat(document.getElementById('topPSlider').value),
-    maxTokens:   rawMaxTokens ? parseInt(rawMaxTokens) : null,
+    temperature:  parseFloat(document.getElementById('tempSlider').value),
+    topP:         parseFloat(document.getElementById('topPSlider').value),
+    maxTokens:    rawMaxTokens ? parseInt(rawMaxTokens) : null,
     systemPrompt: document.getElementById('systemPrompt').value,
   };
 
@@ -1436,7 +1672,7 @@ function saveSettings() {
 }
 
 /**
- * Loads persisted settings from localStorage and populates the sidebar controls.
+ * Loads persisted settings from localStorage and populates the controls.
  */
 function loadSettings() {
   let settings;
@@ -1467,31 +1703,18 @@ function loadSettings() {
   }
 }
 
-// ── Advanced Panel ──────────────────────────────────────────────────────────
+// ── Settings Modal ──────────────────────────────────────────────────────────
 
-/**
- * Opens the settings modal. The current persisted values are already loaded into
- * the fields by loadSettings() on startup; no re-read is needed here.
- */
 function openSettingsModal() {
   document.getElementById('settingsModal').classList.add('open');
   document.getElementById('systemPrompt').focus();
 }
 
-/**
- * Closes the settings modal without saving any changes made during this session.
- * Any slider movements since the modal was opened are discarded.
- */
 function closeSettingsModal() {
   document.getElementById('settingsModal').classList.remove('open');
-
-  // Revert unsaved slider / textarea state to whatever is in localStorage
   loadSettings();
 }
 
-/**
- * Persists the current modal field values to localStorage then closes the modal.
- */
 function saveSettingsAndClose() {
   saveSettings();
   document.getElementById('settingsModal').classList.remove('open');
@@ -1501,10 +1724,10 @@ function saveSettingsAndClose() {
 // ── Provider Modal ──────────────────────────────────────────────────────────
 
 /**
- * Opens the provider add/edit modal, pre-populating fields if editing an existing provider.
+ * Opens the provider add/edit modal, pre-populating fields when editing.
  *
  * Args:
- *   providerId (string|null) — The ID of the provider to edit, or null for a new one.
+ *   providerId (string|null) — ID of the provider to edit, or null for a new one.
  */
 function openModal(providerId = null) {
   editingProviderId = providerId;
@@ -1519,12 +1742,14 @@ function openModal(providerId = null) {
       document.getElementById('providerUrl').value  = existingProvider.url;
       document.getElementById('providerKey').value  = existingProvider.key || '';
       selectProto(existingProvider.proto);
+      setVisionToggle(Boolean(existingProvider.supportsVision));
     }
   } else {
     document.getElementById('providerName').value = '';
     document.getElementById('providerUrl').value  = '';
     document.getElementById('providerKey').value  = '';
     selectProto('ollama');
+    setVisionToggle(false);
   }
 
   renderPresetGrid();
@@ -1532,16 +1757,13 @@ function openModal(providerId = null) {
   document.getElementById('providerName').focus();
 }
 
-/**
- * Closes the provider modal and clears the editing state.
- */
 function closeModal() {
   document.getElementById('providerModal').classList.remove('open');
   editingProviderId = null;
 }
 
 /**
- * Selects a protocol option (ollama or openai) in the modal and updates the hint text.
+ * Selects a protocol option in the modal and updates the hint text.
  *
  * Args:
  *   proto (string) — 'ollama' or 'openai'.
@@ -1555,7 +1777,6 @@ function selectProto(proto) {
 
   document.getElementById('protoHint').textContent = PROTO_HINTS[proto];
 
-  // Only suggest a placeholder if the user hasn't typed a URL yet
   const urlInput = document.getElementById('providerUrl');
   if (!urlInput.value) {
     urlInput.placeholder = proto === 'ollama'
@@ -1564,11 +1785,32 @@ function selectProto(proto) {
   }
 }
 
-// ── Preset Grid ─────────────────────────────────────────────────────────────
+/**
+ * Toggles the vision support checkbox visual state in the provider modal.
+ *
+ * Args:
+ *   isEnabled (boolean) — Whether vision support should be checked.
+ */
+function setVisionToggle(isEnabled) {
+  const row       = document.getElementById('visionToggleRow');
+  const indicator = document.getElementById('visionCheckIndicator');
+  const checkbox  = document.getElementById('providerVision');
+
+  checkbox.checked    = isEnabled;
+  indicator.textContent = isEnabled ? '✓' : '';
+  row.classList.toggle('enabled', isEnabled);
+}
 
 /**
- * Renders the preset chip grid inside the provider modal.
+ * Handles clicks on the vision toggle row by flipping the checkbox state.
  */
+function toggleVisionSupport() {
+  const checkbox = document.getElementById('providerVision');
+  setVisionToggle(!checkbox.checked);
+}
+
+// ── Preset Grid ─────────────────────────────────────────────────────────────
+
 function renderPresetGrid() {
   const grid = document.getElementById('presetGrid');
   if (!grid) return;
@@ -1594,7 +1836,6 @@ function applyPreset(presetIndex) {
   document.getElementById('providerUrl').value  = preset.url;
   selectProto(preset.proto);
 
-  // Highlight the selected chip visually
   document.querySelectorAll('.preset-chip').forEach((chip, index) => {
     chip.style.borderColor = index === presetIndex ? 'var(--accent2)' : '';
     chip.style.color       = index === presetIndex ? 'var(--accent2)' : '';
@@ -1609,41 +1850,46 @@ function applyPreset(presetIndex) {
  * Validates modal fields and saves the provider (create or update) to state and localStorage.
  */
 function saveProvider() {
-  const name = document.getElementById('providerName').value.trim();
-  const url  = document.getElementById('providerUrl').value.trim().replace(/\/$/, '');
-  const key  = document.getElementById('providerKey').value.trim();
+  const name           = document.getElementById('providerName').value.trim();
+  const url            = document.getElementById('providerUrl').value.trim().replace(/\/$/, '');
+  const key            = document.getElementById('providerKey').value.trim();
+  const supportsVision = document.getElementById('providerVision').checked;
 
   if (!name) { showToast('✕ Enter a name', true); return; }
-  if (!url)  { showToast('✕ Enter a URL', true); return; }
+  if (!url)  { showToast('✕ Enter a URL',  true); return; }
 
   if (editingProviderId) {
     const existingIndex = providers.findIndex(provider => provider.id === editingProviderId);
     if (existingIndex >= 0) {
-      providers[existingIndex] = { ...providers[existingIndex], name, url, key, proto: selectedProto };
+      providers[existingIndex] = {
+        ...providers[existingIndex],
+        name, url, key, proto: selectedProto, supportsVision,
+      };
     }
   } else {
     providers.push({
-      id:        Date.now().toString(),
+      id: Date.now().toString(),
       name, url, key,
-      proto:     selectedProto,
-      lastModel: null,
+      proto:          selectedProto,
+      supportsVision: supportsVision,
+      lastModel:      null,
     });
   }
 
   localStorage.setItem(STORAGE_KEYS.providers, JSON.stringify(providers));
   closeModal();
   renderProviderList();
+  updateAttachButtonVisibility();
 
-  // Auto-activate when the first provider is added
   if (providers.length === 1) activateProvider(providers[0].id);
 }
 
 /**
- * Prompts for confirmation then removes a provider from state and localStorage.
+ * Prompts for confirmation then deletes a provider from state and localStorage.
  *
  * Args:
  *   providerId (string) — The provider to delete.
- *   event      (Event)  — The click event; propagation is stopped to avoid activating the row.
+ *   event      (Event)  — Click event; propagation is stopped.
  */
 async function deleteProvider(providerId, event) {
   event.stopPropagation();
@@ -1655,7 +1901,6 @@ async function deleteProvider(providerId, event) {
   providers = providers.filter(provider => provider.id !== providerId);
   localStorage.setItem(STORAGE_KEYS.providers, JSON.stringify(providers));
 
-  // Fall back to the first remaining provider, or clear the active state
   if (activeProviderId === providerId) {
     activeProviderId = providers[0]?.id || null;
     localStorage.setItem(STORAGE_KEYS.activeProvider, activeProviderId || '');
@@ -1669,6 +1914,7 @@ async function deleteProvider(providerId, event) {
     setConnectionStatus(false, 'NO PROVIDER');
     document.getElementById('activeBadge').style.display = 'none';
     document.getElementById('modelSelect').innerHTML = '<option value="">— select provider —</option>';
+    updateAttachButtonVisibility();
   }
 }
 
@@ -1683,13 +1929,14 @@ function activateProvider(providerId) {
   localStorage.setItem(STORAGE_KEYS.activeProvider, providerId);
   renderProviderList();
   loadModels();
+  updateAttachButtonVisibility();
+
+  // Clear any pending images — they may not be valid for the new provider
+  clearPendingImages();
 }
 
 // ── Provider Rendering ──────────────────────────────────────────────────────
 
-/**
- * Re-renders the provider list in the sidebar from the current providers array.
- */
 function renderProviderList() {
   const container = document.getElementById('providerList');
 
@@ -1699,16 +1946,19 @@ function renderProviderList() {
   }
 
   container.innerHTML = providers.map(provider => {
-    const dotColor  = PROTO_COLORS[provider.proto];
-    const isActive  = provider.id === activeProviderId;
-    const hostOnly  = escapeHtml(provider.url.replace(/^https?:\/\//, ''));
+    const dotColor = PROTO_COLORS[provider.proto];
+    const isActive = provider.id === activeProviderId;
+    const hostOnly = escapeHtml(provider.url.replace(/^https?:\/\//, ''));
+    const visionBadge = provider.supportsVision
+      ? '<span style="font-size:9px;color:var(--accent3);margin-left:4px">👁</span>'
+      : '';
 
     return `
       <div class="provider-item ${isActive ? 'active' : ''}"
            onclick="activateProvider('${provider.id}')">
         <div class="provider-dot" style="background:${dotColor};box-shadow:0 0 6px ${dotColor}"></div>
         <div class="provider-info">
-          <div class="provider-name">${escapeHtml(provider.name)}</div>
+          <div class="provider-name">${escapeHtml(provider.name)}${visionBadge}</div>
           <div class="provider-url">${hostOnly}</div>
         </div>
         <div class="provider-actions">
@@ -1722,10 +1972,6 @@ function renderProviderList() {
 
 // ── Model Loading ───────────────────────────────────────────────────────────
 
-/**
- * Fetches the model list from the active provider and populates the model dropdown.
- * Shows connection status and a toast on success or failure.
- */
 async function loadModels() {
   const provider = getActiveProvider();
   if (!provider) return;
@@ -1751,19 +1997,17 @@ async function loadModels() {
 }
 
 /**
- * Fetches available model names from the provider using its declared protocol.
+ * Fetches model names from the provider using its declared protocol.
  *
  * Args:
- *   provider (object) — Provider record with url, proto, and key fields.
+ *   provider (object) — Provider record.
  *
- * Returns: (Promise<string[]>) Array of model name strings.
+ * Returns: (Promise<string[]>)
  *
- * Raises: Error if the HTTP request fails or the response is not OK.
+ * Raises: Error if the HTTP request fails.
  */
 async function fetchModelNames(provider) {
-  if (provider.proto === 'ollama') {
-    return fetchOllamaModelNames(provider);
-  }
+  if (provider.proto === 'ollama') return fetchOllamaModelNames(provider);
   return fetchOpenAIModelNames(provider);
 }
 
@@ -1773,10 +2017,10 @@ async function fetchModelNames(provider) {
  * Args:
  *   provider (object) — Provider record.
  *
- * Returns: (Promise<string[]>) Sorted list of model name strings.
+ * Returns: (Promise<string[]>)
  */
 async function fetchOllamaModelNames(provider) {
-  const headers = provider.key ? { Authorization: `Bearer ${provider.key}` } : {};
+  const headers  = provider.key ? { Authorization: `Bearer ${provider.key}` } : {};
   const response = await fetch(`${provider.url}/api/tags`, { headers });
 
   if (!response.ok) throw new Error('HTTP ' + response.status);
@@ -1791,10 +2035,9 @@ async function fetchOllamaModelNames(provider) {
  * Args:
  *   provider (object) — Provider record.
  *
- * Returns: (Promise<string[]>) Sorted list of model ID strings.
+ * Returns: (Promise<string[]>)
  */
 async function fetchOpenAIModelNames(provider) {
-  // Some providers omit /v1; detect and append it only when missing
   const hasVersionSuffix = provider.url.endsWith('/v1') || /\/v\d+$/.test(provider.url);
   const modelsUrl = hasVersionSuffix
     ? `${provider.url}/models`
@@ -1814,11 +2057,10 @@ async function fetchOpenAIModelNames(provider) {
 }
 
 /**
- * Fills the model <select> with the provided model names and restores any previously
- * selected model if it still exists in the list.
+ * Fills the model <select> with provided model names, restoring any prior selection.
  *
  * Args:
- *   provider   (object)   — The active provider (used to restore lastModel).
+ *   provider   (object)   — The active provider.
  *   modelNames (string[]) — Model names to display.
  */
 function populateModelDropdown(provider, modelNames) {
@@ -1832,7 +2074,6 @@ function populateModelDropdown(provider, modelNames) {
     select.value = provider.lastModel;
   }
 
-  // Persist the selected model when the user changes it
   select.onchange = () => {
     const activeProvider = getActiveProvider();
     if (activeProvider) {
@@ -1850,7 +2091,7 @@ function populateModelDropdown(provider, modelNames) {
  *
  * Args:
  *   isOnline  (boolean) — true = green pulse, false = red static dot.
- *   statusMsg (string)  — Short status label shown next to the dot.
+ *   statusMsg (string)  — Short status label.
  */
 function setConnectionStatus(isOnline, statusMsg) {
   document.getElementById('statusDot').className = 'status-dot' + (isOnline ? '' : ' offline');
@@ -1858,7 +2099,7 @@ function setConnectionStatus(isOnline, statusMsg) {
 }
 
 /**
- * Updates the provider badge in the header with the active provider name and protocol.
+ * Updates the provider badge in the header, including the vision indicator if applicable.
  */
 function updateProviderBadge() {
   const provider = getActiveProvider();
@@ -1872,29 +2113,210 @@ function updateProviderBadge() {
   badge.style.display = 'inline-flex';
   document.getElementById('badgeName').textContent  = provider.name;
   document.getElementById('badgeProto').textContent = provider.proto.toUpperCase();
+
+  const visionTag = document.getElementById('badgeVision');
+  visionTag.style.display = provider.supportsVision ? 'inline' : 'none';
+}
+
+/**
+ * Shows or hides the attach button based on whether the active provider supports vision.
+ * An invisible attach button would confuse users, so we hide it entirely.
+ */
+function updateAttachButtonVisibility() {
+  const attachBtn = document.getElementById('attachBtn');
+  attachBtn.style.display = isVisionEnabled() ? 'flex' : 'none';
+
+  // Also clear pending images when vision is no longer available
+  if (!isVisionEnabled()) clearPendingImages();
+}
+
+// ── Image Handling ──────────────────────────────────────────────────────────
+
+/**
+ * Programmatically clicks the hidden file input to open the OS file picker.
+ */
+function triggerImageFilePicker() {
+  document.getElementById('imageFileInput').click();
+}
+
+/**
+ * Handles the change event from the file input. Compresses and queues each selected image.
+ *
+ * Args:
+ *   event (Event) — The file input change event.
+ */
+async function handleImageFileSelection(event) {
+  const files = Array.from(event.target.files);
+  // Reset the input so the same file can be re-selected if needed
+  event.target.value = '';
+
+  for (const file of files) {
+    if (pendingImages.length >= MAX_PENDING_IMAGES) {
+      showToast(`✕ Max ${MAX_PENDING_IMAGES} images per message`, true);
+      break;
+    }
+    await addImageToPending(file);
+  }
+}
+
+/**
+ * Intercepts paste events on the textarea to capture pasted images.
+ * Text pastes fall through to the browser's default handler.
+ *
+ * Args:
+ *   event (ClipboardEvent) — The paste event from the textarea.
+ */
+async function handlePaste(event) {
+  if (!isVisionEnabled()) return;
+
+  const items = Array.from(event.clipboardData?.items || []);
+  const imageItems = items.filter(item => item.type.startsWith('image/'));
+  if (!imageItems.length) return;
+
+  // Prevent the image data-URL from being pasted as text into the textarea
+  event.preventDefault();
+
+  for (const item of imageItems) {
+    if (pendingImages.length >= MAX_PENDING_IMAGES) break;
+    const file = item.getAsFile();
+    if (file) await addImageToPending(file);
+  }
+}
+
+/**
+ * Compresses a File to a JPEG data-URL and adds it to the pending images queue.
+ * Shows a toast on success; silently logs errors without crashing.
+ *
+ * Args:
+ *   file (File) — The image file to compress and queue.
+ */
+async function addImageToPending(file) {
+  try {
+    const dataUrl = await compressImageFile(file);
+    pendingImages.push(dataUrl);
+    renderPendingImagesBar();
+    showToast(`🖼 Image attached (${pendingImages.length}/${MAX_PENDING_IMAGES})`);
+  } catch (compressionError) {
+    console.error('Failed to process image:', compressionError);
+    showToast('✕ Failed to process image', true);
+  }
+}
+
+/**
+ * Compresses an image File via a canvas element and returns a JPEG data-URL.
+ * Scales the image down so its longest edge does not exceed IMAGE_COMPRESS_MAX_EDGE_PX.
+ *
+ * Args:
+ *   file (File) — The source image file.
+ *
+ * Returns: (Promise<string>) JPEG data-URL of the compressed image.
+ *
+ * Raises: Error if the image cannot be loaded or the canvas is unavailable.
+ */
+function compressImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+
+      // Calculate scaled dimensions, preserving aspect ratio
+      let { width, height } = img;
+      const maxEdge = IMAGE_COMPRESS_MAX_EDGE_PX;
+
+      if (width > maxEdge || height > maxEdge) {
+        if (width >= height) {
+          height = Math.round((height / width) * maxEdge);
+          width  = maxEdge;
+        } else {
+          width  = Math.round((width / height) * maxEdge);
+          height = maxEdge;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('Canvas 2D context unavailable')); return; }
+
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL(IMAGE_COMPRESS_OUTPUT_FORMAT, IMAGE_COMPRESS_QUALITY));
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error(`Failed to load image: ${file.name}`));
+    };
+
+    img.src = objectUrl;
+  });
+}
+
+/**
+ * Removes one image from the pending queue by index and re-renders the bar.
+ *
+ * Args:
+ *   imageIndex (number) — Index of the image to remove.
+ */
+function removePendingImage(imageIndex) {
+  pendingImages.splice(imageIndex, 1);
+  renderPendingImagesBar();
+}
+
+/**
+ * Clears all pending images and hides the preview bar.
+ */
+function clearPendingImages() {
+  pendingImages = [];
+  renderPendingImagesBar();
+}
+
+/**
+ * Re-renders the pending image preview bar above the text input.
+ * Shows the bar only when there are images queued.
+ */
+function renderPendingImagesBar() {
+  const bar       = document.getElementById('pendingImagesBar');
+  const attachBtn = document.getElementById('attachBtn');
+
+  if (!pendingImages.length) {
+    bar.classList.remove('has-images');
+    bar.innerHTML = '<span class="pending-images-label">ATTACHED:</span>';
+    attachBtn.classList.remove('has-images');
+    return;
+  }
+
+  bar.classList.add('has-images');
+  attachBtn.classList.add('has-images');
+
+  const thumbnailsHtml = pendingImages.map((dataUrl, index) => `
+    <div class="pending-image-item">
+      <img class="pending-image-thumb" src="${dataUrl}" alt="Pending image ${index + 1}">
+      <button class="pending-image-remove" onclick="removePendingImage(${index})" title="Remove">×</button>
+    </div>
+  `).join('');
+
+  bar.innerHTML = `<span class="pending-images-label">ATTACHED:</span>${thumbnailsHtml}`;
 }
 
 // ── Conversation Management ─────────────────────────────────────────────────
 
-/**
- * Persists the current conversations array to localStorage.
- */
 function saveConversations() {
   localStorage.setItem(STORAGE_KEYS.conversations, JSON.stringify(conversations));
 }
 
 /**
- * Returns the currently active conversation object, or undefined if none is selected.
+ * Returns the active conversation object, or undefined if none is selected.
  *
- * Returns: (object|undefined) conversation record.
+ * Returns: (object|undefined)
  */
 function getActiveConversation() {
   return conversations.find(conv => conv.id === activeConvId);
 }
 
-/**
- * Creates a new empty conversation, saves it, and selects it.
- */
 function newConversation() {
   const newConv = {
     id:        Date.now().toString(),
@@ -1913,7 +2335,7 @@ function newConversation() {
  * Selects a conversation by ID and re-renders the message area.
  *
  * Args:
- *   conversationId (string) — ID of the conversation to activate.
+ *   conversationId (string) — ID to activate.
  */
 function selectConversation(conversationId) {
   activeConvId = conversationId;
@@ -1925,7 +2347,7 @@ function selectConversation(conversationId) {
  * Prompts for confirmation then deletes the specified conversation.
  *
  * Args:
- *   conversationId (string) — ID of the conversation to delete.
+ *   conversationId (string) — ID to delete.
  *   event          (Event)  — Click event; propagation is stopped.
  */
 async function deleteConversation(conversationId, event) {
@@ -1946,9 +2368,6 @@ async function deleteConversation(conversationId, event) {
   renderMessages();
 }
 
-/**
- * Prompts for confirmation then clears all saved conversations.
- */
 async function clearAllConversations() {
   const isConfirmed = await showConfirm('CLEAR ALL SESSIONS?\nThis cannot be undone.');
   if (!isConfirmed) return;
@@ -1962,9 +2381,6 @@ async function clearAllConversations() {
 
 // ── Conversation List Rendering ─────────────────────────────────────────────
 
-/**
- * Re-renders the sidebar conversation list from the current conversations array.
- */
 function renderConversationList() {
   const list = document.getElementById('conversationList');
 
@@ -1985,10 +2401,6 @@ function renderConversationList() {
 
 // ── Message Rendering ───────────────────────────────────────────────────────
 
-/**
- * Re-renders the full message list for the active conversation.
- * Shows an empty state illustration if there are no messages.
- */
 function renderMessages() {
   const area = document.getElementById('chatArea');
   const conv = getActiveConversation();
@@ -2007,11 +2419,6 @@ function renderMessages() {
   area.scrollTop = area.scrollHeight;
 }
 
-/**
- * Returns the HTML string for the empty-chat placeholder illustration.
- *
- * Returns: (string) HTML markup.
- */
 function buildEmptyStateHtml() {
   return `
     <div class="empty-state">
@@ -2030,16 +2437,21 @@ function buildEmptyStateHtml() {
 
 /**
  * Builds the HTML string for a single chat message bubble.
+ * Handles both plain-string content (legacy/assistant messages) and
+ * array content (user messages that may contain images).
  *
  * Args:
- *   message        (object)  — Message record with role, content, thinking, and time.
- *   messageIndex   (number)  — Position in the messages array (used for copy callback).
- *   isLastMessage  (boolean) — True for the final message; shows a Regenerate button.
+ *   message       (object)  — Message record: { role, content, images?, thinking?, time }
+ *   messageIndex  (number)  — Position in the messages array.
+ *   isLastMessage (boolean) — True for the final message; shows Regenerate button.
  *
- * Returns: (string) HTML markup for the message.
+ * Returns: (string) HTML markup.
  */
 function buildMessageHtml(message, messageIndex, isLastMessage) {
   const isUserMessage = message.role === 'user';
+
+  // Render any images attached to this message (user messages only)
+  const imagesHtml = buildMessageImagesHtml(message.images);
 
   const thinkingHtml = message.thinking
     ? `<div class="thinking-block">
@@ -2048,9 +2460,10 @@ function buildMessageHtml(message, messageIndex, isLastMessage) {
        </div>`
     : '';
 
-  const copyButton = `<button class="msg-btn" onclick="copyMessageToClipboard(this, ${messageIndex})">⎘ COPY</button>`;
+  const textContent = extractTextContent(message.content);
 
-  const regenButton = (isLastMessage && !isUserMessage && message.content)
+  const copyButton = `<button class="msg-btn" onclick="copyMessageToClipboard(this, ${messageIndex})">⎘ COPY</button>`;
+  const regenButton = (isLastMessage && !isUserMessage && textContent)
     ? `<button class="msg-btn regen" onclick="regenerateLastResponse()">↺ REGEN</button>`
     : '';
 
@@ -2076,26 +2489,99 @@ function buildMessageHtml(message, messageIndex, isLastMessage) {
           <span class="message-time">${formatTime(message.time)}</span>
         </div>
         ${thinkingHtml}
-        <div class="message-body">${formatContent(message.content)}</div>
+        <div class="message-body">
+          ${imagesHtml}
+          ${formatContent(textContent)}
+        </div>
         <div class="message-actions">${copyButton}${regenButton}</div>
       </div>
     </div>`;
 }
 
+/**
+ * Builds HTML for the image thumbnails shown inside a message bubble.
+ * Returns an empty string when there are no images.
+ *
+ * Args:
+ *   images (string[]|undefined) — Array of data-URL strings stored on the message.
+ *
+ * Returns: (string) HTML markup, or '' if no images.
+ */
+function buildMessageImagesHtml(images) {
+  if (!images || !images.length) return '';
+
+  const thumbsHtml = images.map((dataUrl, index) => `
+    <img class="message-image-thumb"
+         src="${dataUrl}"
+         alt="Attached image ${index + 1}"
+         onclick="openLightbox('${escapeHtml(dataUrl)}')"
+         title="Click to enlarge">
+  `).join('');
+
+  return `<div class="message-images">${thumbsHtml}</div>`;
+}
+
+/**
+ * Extracts the plain text from a message content field.
+ * Content may be a plain string (most messages) or an array (multimodal messages).
+ *
+ * Args:
+ *   content (string|object[]) — The message content field.
+ *
+ * Returns: (string) The text portion of the content.
+ */
+function extractTextContent(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content))     return '';
+
+  return content
+    .filter(part => part.type === 'text')
+    .map(part => part.text)
+    .join('');
+}
+
+// ── Lightbox ────────────────────────────────────────────────────────────────
+
+/**
+ * Opens the lightbox overlay to display an image at full size.
+ *
+ * Args:
+ *   dataUrl (string) — The data-URL of the image to display.
+ */
+function openLightbox(dataUrl) {
+  document.getElementById('lightboxImg').src = dataUrl;
+  document.getElementById('lightboxOverlay').classList.add('open');
+}
+
+/**
+ * Closes the lightbox overlay and clears the image src to release memory.
+ */
+function closeLightbox() {
+  document.getElementById('lightboxOverlay').classList.remove('open');
+  document.getElementById('lightboxImg').src = '';
+}
+
+// Close lightbox with Escape key
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') closeLightbox();
+});
+
 // ── Message Actions ─────────────────────────────────────────────────────────
 
 /**
- * Copies the text content of a message to the clipboard and briefly changes the button label.
+ * Copies the text content of a message to the clipboard.
  *
  * Args:
- *   button       (HTMLElement) — The clicked button element (label is updated in place).
+ *   button       (HTMLElement) — The clicked button (label updated in place).
  *   messageIndex (number)      — Index of the message in the active conversation.
  */
 function copyMessageToClipboard(button, messageIndex) {
   const conv = getActiveConversation();
   if (!conv?.messages[messageIndex]) return;
 
-  navigator.clipboard.writeText(conv.messages[messageIndex].content).then(() => {
+  const textToCopy = extractTextContent(conv.messages[messageIndex].content);
+
+  navigator.clipboard.writeText(textToCopy).then(() => {
     button.textContent = '✓ COPIED';
     button.classList.add('copied');
     setTimeout(() => {
@@ -2106,7 +2592,7 @@ function copyMessageToClipboard(button, messageIndex) {
 }
 
 /**
- * Removes the last assistant message and re-runs the assistant to generate a new response.
+ * Removes the last assistant message and re-runs the assistant for a new response.
  */
 async function regenerateLastResponse() {
   if (isStreaming) return;
@@ -2124,7 +2610,7 @@ async function regenerateLastResponse() {
 // ── Send Message ────────────────────────────────────────────────────────────
 
 /**
- * Reads the input field, appends a user message to the active (or new) conversation,
+ * Reads the input field, appends a user message (with any pending images),
  * and triggers an assistant response.
  */
 async function sendMessage() {
@@ -2132,7 +2618,9 @@ async function sendMessage() {
 
   const inputEl  = document.getElementById('messageInput');
   const userText = inputEl.value.trim();
-  if (!userText) return;
+
+  // Allow sending with images even if text is empty
+  if (!userText && !pendingImages.length) return;
 
   const selectedModel = document.getElementById('modelSelect').value;
   if (!selectedModel) { showToast('✕ Select a model first', true); return; }
@@ -2143,11 +2631,21 @@ async function sendMessage() {
   if (!activeConvId) newConversation();
 
   const conv = getActiveConversation();
-  conv.messages.push({ role: 'user', content: userText, time: new Date().toISOString() });
 
-  // Auto-title from first user message (truncated to 40 chars)
+  // Snapshot pending images into the message record, then clear the queue
+  const attachedImages = [...pendingImages];
+  clearPendingImages();
+
+  conv.messages.push({
+    role:    'user',
+    content: userText,
+    images:  attachedImages.length ? attachedImages : undefined,
+    time:    new Date().toISOString(),
+  });
+
   if (conv.title === 'NEW SESSION') {
-    conv.title = userText.slice(0, 40) + (userText.length > 40 ? '…' : '');
+    const titleSource = userText || (attachedImages.length ? '[image]' : '');
+    conv.title = titleSource.slice(0, 40) + (titleSource.length > 40 ? '…' : '');
   }
 
   saveConversations();
@@ -2162,25 +2660,24 @@ async function sendMessage() {
 // ── Assistant Orchestration ─────────────────────────────────────────────────
 
 /**
- * Reads current settings, appends a placeholder assistant message, calls the appropriate
- * streaming function, and handles errors and cleanup.
+ * Appends a placeholder assistant message, calls the appropriate streaming function,
+ * and handles errors and cleanup.
  *
  * Args:
- *   conv (object) — The active conversation record to append the response to.
+ *   conv (object) — The active conversation to append the response to.
  */
 async function runAssistant(conv) {
-  const provider     = getActiveProvider();
+  const provider      = getActiveProvider();
   const selectedModel = document.getElementById('modelSelect').value;
   const streamParams  = buildStreamParams();
 
-  // Append empty placeholder so the UI can show a streaming cursor immediately
   conv.messages.push({ role: 'assistant', content: '', thinking: '', time: new Date().toISOString() });
   renderMessages();
 
   abortController = new AbortController();
   setStreamingState(true);
 
-  const messageHistory = buildMessageHistory(conv, streamParams.systemPrompt);
+  const messageHistory = buildMessageHistory(conv, streamParams.systemPrompt, provider.proto);
 
   try {
     if (provider.proto === 'ollama') {
@@ -2196,15 +2693,13 @@ async function runAssistant(conv) {
     setStreamingState(false);
 
     setTimeout(() => {
-      if (!isStreaming) {
-        document.getElementById('tokenCount').textContent = 'TOKENS: —';
-      }
+      if (!isStreaming) document.getElementById('tokenCount').textContent = 'TOKENS: —';
     }, TOKEN_DISPLAY_RESET_MS);
   }
 }
 
 /**
- * Reads the current sidebar controls and returns a params object for the streaming functions.
+ * Reads the current settings controls and returns a params object for the streaming functions.
  *
  * Returns: (object) { temperature, topP, maxTokens, systemPrompt }
  */
@@ -2220,55 +2715,110 @@ function buildStreamParams() {
 }
 
 /**
- * Builds the messages array to send to the API, optionally prepending a system prompt.
- * The last (placeholder) assistant message is excluded — it will be filled by streaming.
+ * Builds the messages array for the API request, converting image data to the
+ * correct wire format for the target protocol.
+ *
+ * Ollama native: images go in a top-level `images` array (base64 only, no prefix);
+ *   the content field stays as a plain string.
+ * OpenAI compat: images are embedded in the content array as `image_url` objects
+ *   using data-URLs (with the `data:image/jpeg;base64,...` prefix intact).
  *
  * Args:
  *   conv         (object) — The active conversation.
  *   systemPrompt (string) — Optional system prompt text.
+ *   proto        (string) — 'ollama' or 'openai'.
  *
- * Returns: (object[]) Array of { role, content } message objects.
+ * Returns: (object[]) Array of API-ready message objects.
  */
-function buildMessageHistory(conv, systemPrompt) {
+function buildMessageHistory(conv, systemPrompt, proto) {
   const history = [];
 
   if (systemPrompt) {
     history.push({ role: 'system', content: systemPrompt });
   }
 
-  // Exclude the last message (the empty placeholder we just added)
+  // Exclude the last message (the empty placeholder added by runAssistant)
   conv.messages.slice(0, -1).forEach(msg => {
-    history.push({ role: msg.role, content: msg.content });
+    history.push(convertMessageForProtocol(msg, proto));
   });
 
   return history;
 }
 
 /**
- * Handles errors thrown during streaming: differentiates user-initiated stops from
- * genuine errors and updates the conversation accordingly.
+ * Converts a stored message record to the wire format expected by the given protocol.
  *
  * Args:
- *   conv        (object) — The active conversation.
- *   streamError (Error)  — The caught error.
+ *   message (object) — Stored message: { role, content, images? }
+ *   proto   (string) — 'ollama' or 'openai'.
+ *
+ * Returns: (object) API-ready message object.
  */
-function handleStreamError(conv, streamError) {
-  const lastMessage = conv.messages[conv.messages.length - 1];
+function convertMessageForProtocol(message, proto) {
+  const hasImages = message.images && message.images.length > 0;
 
-  if (streamError.name === 'AbortError') {
-    // User clicked Stop — preserve whatever content was received
-    if (!lastMessage.content && !lastMessage.thinking) {
-      lastMessage.content = '⊘ STOPPED';
-    }
-    showToast('⊘ STOPPED');
-  } else {
-    lastMessage.content = '✕ ERROR: ' + streamError.message;
-    showToast('✕ ' + streamError.message, true);
-    console.error('Streaming error:', streamError);
+  if (!hasImages) {
+    // No images — plain string content works for both protocols
+    return { role: message.role, content: message.content || '' };
   }
 
-  saveConversations();
-  renderMessages();
+  if (proto === 'ollama') {
+    return buildOllamaVisionMessage(message);
+  }
+
+  return buildOpenAIVisionMessage(message);
+}
+
+/**
+ * Builds an Ollama-format vision message.
+ * Ollama expects a plain string `content` and a separate `images` array of
+ * raw base64 strings (the `data:image/...;base64,` prefix must be stripped).
+ *
+ * Args:
+ *   message (object) — Stored message with images array.
+ *
+ * Returns: (object) { role, content, images }
+ */
+function buildOllamaVisionMessage(message) {
+  const rawBase64Images = message.images.map(dataUrl => {
+    // Strip the data URL prefix to get the raw base64 string
+    const commaIndex = dataUrl.indexOf(',');
+    return commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
+  });
+
+  return {
+    role:    message.role,
+    content: message.content || '',
+    images:  rawBase64Images,
+  };
+}
+
+/**
+ * Builds an OpenAI-format vision message.
+ * OpenAI embeds images inside the `content` array as `image_url` objects.
+ * Data-URLs with the full `data:image/...;base64,...` prefix are accepted directly.
+ *
+ * Args:
+ *   message (object) — Stored message with images array.
+ *
+ * Returns: (object) { role, content: ContentPart[] }
+ */
+function buildOpenAIVisionMessage(message) {
+  const contentParts = [];
+
+  // Images first, then text — some models attend better with this ordering
+  message.images.forEach(dataUrl => {
+    contentParts.push({
+      type:      'image_url',
+      image_url: { url: dataUrl },
+    });
+  });
+
+  if (message.content) {
+    contentParts.push({ type: 'text', text: message.content });
+  }
+
+  return { role: message.role, content: contentParts };
 }
 
 // ── Ollama Streaming ────────────────────────────────────────────────────────
@@ -2277,18 +2827,18 @@ function handleStreamError(conv, streamError) {
  * Streams a response from an Ollama-native endpoint, updating the UI on each chunk.
  *
  * Args:
- *   provider       (object)   — Active provider record.
- *   model          (string)   — Model name to use.
- *   messages       (object[]) — Message history array.
- *   params         (object)   — { temperature, topP, maxTokens, signal }
- *   conv           (object)   — Active conversation to update.
+ *   provider  (object)   — Active provider record.
+ *   model     (string)   — Model name.
+ *   messages  (object[]) — Message history array.
+ *   params    (object)   — { temperature, topP, maxTokens, signal }
+ *   conv      (object)   — Active conversation to update.
  */
 async function streamOllama(provider, model, messages, params, conv) {
   const { temperature, topP, maxTokens, signal } = params;
 
   const options = { temperature };
-  if (topP < 1)    options.top_p       = topP;
-  if (maxTokens)   options.num_predict  = maxTokens;
+  if (topP < 1)  options.top_p       = topP;
+  if (maxTokens) options.num_predict  = maxTokens;
 
   const response = await fetch(`${provider.url}/api/chat`, {
     method: 'POST',
@@ -2321,7 +2871,7 @@ async function streamOllama(provider, model, messages, params, conv) {
           if (chunk.message?.thinking) accumulatedThinking += chunk.message.thinking;
           updateStreamingMessage(conv, accumulatedContent, accumulatedThinking);
         } catch (parseError) {
-          // Malformed JSON chunk — skip and continue; Ollama occasionally sends partial lines
+          // Malformed JSON chunk — skip; Ollama occasionally sends partial lines
           console.debug('Skipped unparseable Ollama chunk:', parseError.message);
         }
       }
@@ -2336,12 +2886,12 @@ async function streamOllama(provider, model, messages, params, conv) {
 // ── OpenAI-compatible Streaming ─────────────────────────────────────────────
 
 /**
- * Streams a response from an OpenAI-compatible SSE endpoint, updating the UI on each chunk.
- * Handles both `reasoning_content` (DeepSeek-R1 / SiliconFlow) and `<think>` tag formats.
+ * Streams a response from an OpenAI-compatible SSE endpoint.
+ * Handles `reasoning_content` (DeepSeek-R1) and `<think>` tag formats.
  *
  * Args:
  *   provider  (object)   — Active provider record.
- *   model     (string)   — Model name to use.
+ *   model     (string)   — Model name.
  *   messages  (object[]) — Message history array.
  *   params    (object)   — { temperature, topP, maxTokens, signal }
  *   conv      (object)   — Active conversation to update.
@@ -2349,15 +2899,15 @@ async function streamOllama(provider, model, messages, params, conv) {
 async function streamOpenAI(provider, model, messages, params, conv) {
   const { temperature, topP, maxTokens, signal } = params;
 
-  const chatUrl = buildChatCompletionsUrl(provider.url);
+  const chatUrl    = buildChatCompletionsUrl(provider.url);
   const requestBody = buildOpenAIRequestBody({ model, messages, temperature, topP, maxTokens });
 
   const response = await fetch(chatUrl, {
     method: 'POST',
     signal,
     headers: {
-      'Content-Type':  'application/json',
-      Authorization:   `Bearer ${provider.key || 'none'}`,
+      'Content-Type': 'application/json',
+      Authorization:  `Bearer ${provider.key || 'none'}`,
     },
     body: JSON.stringify(requestBody),
   });
@@ -2369,15 +2919,12 @@ async function streamOpenAI(provider, model, messages, params, conv) {
 
   const { rawContent, reasoningContent } = await readOpenAIStream(response, conv);
 
-  // Determine final content and thinking from whichever format was returned
   let finalContent, finalThinking;
 
   if (reasoningContent) {
-    // Provider returned a dedicated reasoning_content field (DeepSeek-R1, SiliconFlow)
     finalThinking = reasoningContent;
     finalContent  = rawContent;
   } else {
-    // Fall back to parsing <think>...</think> tags embedded in the content
     ({ thinking: finalThinking, content: finalContent } = extractThinkTag(rawContent.trimStart()));
   }
 
@@ -2386,10 +2933,9 @@ async function streamOpenAI(provider, model, messages, params, conv) {
 
 /**
  * Reads the SSE stream from an OpenAI-compatible response and accumulates content.
- * Updates the live UI on each chunk.
  *
  * Args:
- *   response (Response) — The Fetch API response object with the SSE body.
+ *   response (Response) — Fetch API response with SSE body.
  *   conv     (object)   — Active conversation for live UI updates.
  *
  * Returns: (Promise<{ rawContent: string, reasoningContent: string }>)
@@ -2409,9 +2955,7 @@ async function readOpenAIStream(response, conv) {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-
-      // Keep the last (potentially incomplete) line in the buffer
-      buffer = lines.pop();
+      buffer = lines.pop(); // Keep potentially incomplete last line
 
       for (const line of lines) {
         const trimmed = line.trim();
@@ -2426,7 +2970,6 @@ async function readOpenAIStream(response, conv) {
           if (delta.reasoning_content) reasoningContent += delta.reasoning_content;
           if (delta.content)           rawContent       += delta.content;
 
-          // Live update: use reasoning_content if present, otherwise parse <think> tags on the fly
           if (reasoningContent) {
             updateStreamingMessage(conv, rawContent, reasoningContent);
           } else {
@@ -2434,7 +2977,6 @@ async function readOpenAIStream(response, conv) {
             updateStreamingMessage(conv, content, thinking);
           }
         } catch (parseError) {
-          // Malformed SSE data line — skip and continue
           console.debug('Skipped unparseable SSE line:', parseError.message);
         }
       }
@@ -2447,8 +2989,7 @@ async function readOpenAIStream(response, conv) {
 }
 
 /**
- * Builds the chat completions URL for a given provider base URL.
- * Detects whether the URL already includes a version segment to avoid double-appending.
+ * Builds the chat completions URL, detecting whether a version segment is already present.
  *
  * Args:
  *   baseUrl (string) — Provider base URL (no trailing slash).
@@ -2468,42 +3009,36 @@ function buildChatCompletionsUrl(baseUrl) {
  * Args:
  *   options (object) — { model, messages, temperature, topP, maxTokens }
  *
- * Returns: (object) Request body suitable for JSON serialization.
+ * Returns: (object) Request body for JSON serialization.
  */
 function buildOpenAIRequestBody({ model, messages, temperature, topP, maxTokens }) {
   const body = { model, messages, stream: true, temperature };
-  if (topP < 1)   body.top_p     = topP;
-  if (maxTokens)  body.max_tokens = maxTokens;
+  if (topP < 1)  body.top_p      = topP;
+  if (maxTokens) body.max_tokens  = maxTokens;
   return body;
 }
 
 // ── Think-tag Parser ────────────────────────────────────────────────────────
 
 /**
- * Extracts thinking content from raw model output that uses <think>...</think> tags.
- * Handles three formats: complete tags, incomplete tags (still streaming), and bare </think>.
+ * Extracts thinking content from model output that uses <think>...</think> tags.
+ * Handles complete tags, incomplete tags (still streaming), and bare </think>.
  *
  * Args:
- *   raw (string) — Raw model output, potentially containing <think> tags.
+ *   raw (string) — Raw model output.
  *
  * Returns: (object) { thinking: string, content: string }
  */
 function extractThinkTag(raw) {
-  // Case 1: Complete <think>...</think> block (Qwen3 and similar)
   const fullMatch = raw.match(/^<think>([\s\S]*?)<\/think>\s*/);
   if (fullMatch) {
-    return {
-      thinking: fullMatch[1].trim(),
-      content:  raw.slice(fullMatch[0].length),
-    };
+    return { thinking: fullMatch[1].trim(), content: raw.slice(fullMatch[0].length) };
   }
 
-  // Case 2: <think> is open but </think> hasn't arrived yet — still streaming
   if (raw.startsWith('<think>') && !raw.includes('</think>')) {
     return { thinking: raw.slice(7).trim(), content: '' };
   }
 
-  // Case 3: SiliconFlow format — content before a bare </think> separator, no opening tag
   const bareCloseIndex = raw.indexOf('</think>');
   if (bareCloseIndex !== -1) {
     return {
@@ -2512,7 +3047,6 @@ function extractThinkTag(raw) {
     };
   }
 
-  // No think tags found
   return { thinking: '', content: raw };
 }
 
@@ -2523,18 +3057,18 @@ function extractThinkTag(raw) {
  * without re-rendering the entire message list.
  *
  * Args:
- *   conv      (object) — Active conversation (its last message is updated in place).
- *   content   (string) — Accumulated response text so far.
- *   thinking  (string) — Accumulated chain-of-thought text so far (may be empty).
+ *   conv     (object) — Active conversation (last message updated in place).
+ *   content  (string) — Accumulated response text so far.
+ *   thinking (string) — Accumulated chain-of-thought text so far (may be empty).
  */
 function updateStreamingMessage(conv, content, thinking) {
-  const lastMessage = conv.messages[conv.messages.length - 1];
+  const lastMessage    = conv.messages[conv.messages.length - 1];
   lastMessage.content  = content;
   lastMessage.thinking = thinking;
 
-  const chatArea      = document.getElementById('chatArea');
+  const chatArea       = document.getElementById('chatArea');
   const messageBubbles = chatArea.querySelectorAll('.message');
-  const lastBubble    = messageBubbles[messageBubbles.length - 1];
+  const lastBubble     = messageBubbles[messageBubbles.length - 1];
   if (!lastBubble) return;
 
   const bodyEl = lastBubble.querySelector('.message-body');
@@ -2548,7 +3082,7 @@ function updateStreamingMessage(conv, content, thinking) {
     if (thinkEl) {
       thinkEl.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div>${escapeHtml(thinking)}`;
     } else {
-      thinkEl = document.createElement('div');
+      thinkEl           = document.createElement('div');
       thinkEl.className = 'thinking-block';
       thinkEl.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div>${escapeHtml(thinking)}`;
       bodyEl.parentNode.insertBefore(thinkEl, bodyEl);
@@ -2580,6 +3114,33 @@ function finalizeMessage(conv, content, thinking) {
   renderConversationList();
 }
 
+// ── Stream Error Handling ───────────────────────────────────────────────────
+
+/**
+ * Handles errors thrown during streaming; differentiates user-stops from genuine errors.
+ *
+ * Args:
+ *   conv        (object) — Active conversation.
+ *   streamError (Error)  — The caught error.
+ */
+function handleStreamError(conv, streamError) {
+  const lastMessage = conv.messages[conv.messages.length - 1];
+
+  if (streamError.name === 'AbortError') {
+    if (!lastMessage.content && !lastMessage.thinking) {
+      lastMessage.content = '⊘ STOPPED';
+    }
+    showToast('⊘ STOPPED');
+  } else {
+    lastMessage.content = '✕ ERROR: ' + streamError.message;
+    showToast('✕ ' + streamError.message, true);
+    console.error('Streaming error:', streamError);
+  }
+
+  saveConversations();
+  renderMessages();
+}
+
 // ── Input Handling ──────────────────────────────────────────────────────────
 
 /**
@@ -2600,7 +3161,7 @@ function handleInputKeydown(event) {
  * Auto-grows the textarea as the user types, capped at MAX_INPUT_HEIGHT_PX.
  *
  * Args:
- *   textarea (HTMLTextAreaElement) — The textarea element to resize.
+ *   textarea (HTMLTextAreaElement) — The textarea to resize.
  */
 function autoResizeTextarea(textarea) {
   textarea.style.height = 'auto';
@@ -2611,12 +3172,11 @@ function autoResizeTextarea(textarea) {
 
 /**
  * Converts plain model output to safe HTML with basic markdown-ish formatting.
- * Handles fenced code blocks, inline code, bold, and newlines.
  *
  * Args:
  *   text (string) — Raw content string.
  *
- * Returns: (string) HTML-safe string ready for innerHTML.
+ * Returns: (string) HTML-safe string for innerHTML.
  */
 function formatContent(text) {
   if (!text) return '';
@@ -2634,7 +3194,7 @@ function formatContent(text) {
  * Args:
  *   str (string) — The raw string to escape.
  *
- * Returns: (string) HTML-safe version of the string.
+ * Returns: (string) HTML-safe version.
  */
 function escapeHtml(str) {
   return String(str)
@@ -2647,24 +3207,24 @@ function escapeHtml(str) {
 // ── Date / Time Formatting ──────────────────────────────────────────────────
 
 /**
- * Formats an ISO date string as MM/DD for use in conversation list items.
+ * Formats an ISO date string as MM/DD for conversation list items.
  *
  * Args:
  *   isoDate (string) — ISO 8601 date string.
  *
- * Returns: (string) Locale-formatted date, e.g. "03/23".
+ * Returns: (string) e.g. "03/23"
  */
 function formatDate(isoDate) {
   return new Date(isoDate).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
 }
 
 /**
- * Formats an ISO date string as HH:MM for use in message headers.
+ * Formats an ISO date string as HH:MM for message headers.
  *
  * Args:
  *   isoDate (string) — ISO 8601 date string.
  *
- * Returns: (string) Locale-formatted time, e.g. "14:05".
+ * Returns: (string) e.g. "14:05"
  */
 function formatTime(isoDate) {
   return new Date(isoDate).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
@@ -2679,7 +3239,7 @@ let activeToastTimer;
  *
  * Args:
  *   message      (string)  — Text to display.
- *   isErrorToast (boolean) — If true, colors the toast red (danger style).
+ *   isErrorToast (boolean) — If true, colors the toast red.
  */
 function showToast(message, isErrorToast = false) {
   const existingToast = document.querySelector('.toast');
@@ -2699,14 +3259,13 @@ function showToast(message, isErrorToast = false) {
 // ── Auto-Scroll Behavior ────────────────────────────────────────────────────
 
 /**
- * Wires up scroll event listeners so auto-scroll disengages when the user scrolls
- * up and re-engages when they return near the bottom.
+ * Wires up scroll listeners so auto-scroll disengages on upward scroll
+ * and re-engages when the user returns near the bottom.
  */
 function initAutoScrollBehavior() {
   const chatArea = document.getElementById('chatArea');
   let touchStartY = 0;
 
-  // Disable auto-scroll on upward wheel or touch swipe
   chatArea.addEventListener('wheel', event => {
     if (event.deltaY < 0) shouldAutoScroll = false;
   }, { passive: true });
@@ -2716,11 +3275,9 @@ function initAutoScrollBehavior() {
   }, { passive: true });
 
   chatArea.addEventListener('touchmove', event => {
-    const isScrollingUp = event.touches[0].clientY > touchStartY;
-    if (isScrollingUp) shouldAutoScroll = false;
+    if (event.touches[0].clientY > touchStartY) shouldAutoScroll = false;
   }, { passive: true });
 
-  // Re-engage auto-scroll when the user scrolls back near the bottom
   chatArea.addEventListener('scroll', () => {
     const distanceFromBottom = chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight;
     if (distanceFromBottom < AUTO_SCROLL_THRESHOLD_PX) shouldAutoScroll = true;
@@ -2744,6 +3301,7 @@ renderProviderList();
 renderConversationList();
 renderMessages();
 initAutoScrollBehavior();
+updateAttachButtonVisibility();
 
 if (activeProviderId && providers.find(provider => provider.id === activeProviderId)) {
   activateProvider(activeProviderId);
