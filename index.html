@@ -991,41 +991,12 @@
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ── Advanced Settings Panel ───────────────────────────────────────── */
-  .adv-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    cursor: pointer;
-    user-select: none;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--line);
-    flex-shrink: 0;
-  }
+  /* ── Settings Modal Fields ─────────────────────────────────────────── */
 
-  .adv-toggle:hover .adv-arrow { color: var(--accent); }
-
-  .adv-arrow {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    color: var(--text-dim);
-    transition: transform 0.2s, color 0.2s;
-  }
-
-  .adv-arrow.open { transform: rotate(90deg); color: var(--accent); }
-
-  .adv-body {
-    display: none;
-    flex-direction: column;
-    gap: 0;
-    border-bottom: 1px solid var(--line);
-    flex-shrink: 0;
-  }
-
-  .adv-body.open { display: flex; }
-
+  /* Reuses .adv-row / .adv-row-label / .adv-val / .adv-hint patterns
+     but scoped inside the modal so the sidebar stays clean.           */
   .adv-row {
-    padding: 10px 16px;
+    padding: 14px 0;
     border-bottom: 1px solid rgba(30,58,74,0.5);
   }
 
@@ -1036,7 +1007,7 @@
     font-size: 9px;
     color: var(--text-dim);
     letter-spacing: 2px;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1053,7 +1024,7 @@
     font-size: 8px;
     color: var(--text-dim);
     opacity: 0.5;
-    margin-top: 3px;
+    margin-top: 4px;
     letter-spacing: 0.5px;
   }
 
@@ -1161,6 +1132,67 @@
   </div>
 </div>
 
+<!-- ── Settings Modal ─────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal" style="width:480px">
+    <div class="modal-header">
+      <span class="modal-title">⚙ SETTINGS</span>
+      <button class="modal-close" onclick="closeSettingsModal()">×</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- System Prompt -->
+      <div>
+        <div class="field-label">System Prompt</div>
+        <textarea class="system-textarea" id="systemPrompt"
+          placeholder="You are a helpful assistant..."
+          style="min-height:96px;max-height:200px"></textarea>
+        <div class="field-hint">Injected as the first message in every request. Leave blank to omit.</div>
+      </div>
+
+      <!-- Sliders + Max Tokens -->
+      <div style="border-top:1px solid var(--line);padding-top:4px">
+        <div class="adv-row">
+          <div class="adv-row-label">
+            TEMPERATURE
+            <span class="adv-val" id="tempVal">0.70</span>
+          </div>
+          <div class="slider-row" style="margin-top:0">
+            <input type="range" id="tempSlider" min="0" max="2" step="0.05" value="0.7"
+                   oninput="document.getElementById('tempVal').textContent=parseFloat(this.value).toFixed(2)">
+          </div>
+          <div class="slider-hints"><span>PRECISE</span><span>CREATIVE</span></div>
+          <div class="adv-hint">AFFECTS RANDOMNESS · DEFAULT 0.7</div>
+        </div>
+
+        <div class="adv-row">
+          <div class="adv-row-label">
+            TOP P
+            <span class="adv-val" id="topPVal">1.00</span>
+          </div>
+          <div class="slider-row" style="margin-top:0">
+            <input type="range" id="topPSlider" min="0" max="1" step="0.05" value="1"
+                   oninput="document.getElementById('topPVal').textContent=parseFloat(this.value).toFixed(2)">
+          </div>
+          <div class="adv-hint">NUCLEUS SAMPLING · DEFAULT 1.0</div>
+        </div>
+
+        <div class="adv-row">
+          <div class="adv-row-label">MAX TOKENS</div>
+          <input type="number" class="adv-input" id="maxTokens" min="1" max="32768"
+                 placeholder="model default">
+          <div class="adv-hint">LEAVE BLANK FOR MODEL DEFAULT</div>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeSettingsModal()">CANCEL</button>
+      <button class="btn btn-accent" onclick="saveSettingsAndClose()">APPLY</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── App Shell ──────────────────────────────────────────────────────── -->
 <div class="app">
   <header>
@@ -1197,50 +1229,8 @@
       </div>
     </div>
 
-    <div class="sidebar-section">
-      <div class="sidebar-label">// system prompt</div>
-      <textarea class="system-textarea" id="systemPrompt"
-        placeholder="You are a helpful assistant..."
-        oninput="saveSettings()"></textarea>
-    </div>
-
-    <div class="adv-toggle" onclick="toggleAdvancedPanel()">
-      <span class="sidebar-label" style="margin:0;border:none;padding:0">// advanced</span>
-      <span class="adv-arrow" id="advArrow">▸</span>
-    </div>
-
-    <div class="adv-body" id="advBody">
-      <div class="adv-row">
-        <div class="adv-row-label">
-          TEMPERATURE
-          <span class="adv-val" id="tempVal">0.70</span>
-        </div>
-        <div class="slider-row" style="margin-top:0">
-          <input type="range" id="tempSlider" min="0" max="2" step="0.05" value="0.7"
-                 oninput="document.getElementById('tempVal').textContent=parseFloat(this.value).toFixed(2);saveSettings()">
-        </div>
-        <div class="slider-hints"><span>PRECISE</span><span>CREATIVE</span></div>
-        <div class="adv-hint">AFFECTS RANDOMNESS · DEFAULT 0.7</div>
-      </div>
-
-      <div class="adv-row">
-        <div class="adv-row-label">
-          TOP P
-          <span class="adv-val" id="topPVal">1.00</span>
-        </div>
-        <div class="slider-row" style="margin-top:0">
-          <input type="range" id="topPSlider" min="0" max="1" step="0.05" value="1"
-                 oninput="document.getElementById('topPVal').textContent=parseFloat(this.value).toFixed(2);saveSettings()">
-        </div>
-        <div class="adv-hint">NUCLEUS SAMPLING · DEFAULT 1.0</div>
-      </div>
-
-      <div class="adv-row">
-        <div class="adv-row-label">MAX TOKENS</div>
-        <input type="number" class="adv-input" id="maxTokens" min="1" max="32768"
-               placeholder="model default" oninput="saveSettings()">
-        <div class="adv-hint">LEAVE BLANK FOR MODEL DEFAULT</div>
-      </div>
+    <div class="sidebar-section" style="display:flex;gap:8px">
+      <button class="btn btn-full" style="flex:1;border-color:var(--line-bright)" onclick="openSettingsModal()">⚙ SETTINGS</button>
     </div>
 
     <div class="sidebar-section" style="display:flex;gap:8px">
@@ -1480,11 +1470,32 @@ function loadSettings() {
 // ── Advanced Panel ──────────────────────────────────────────────────────────
 
 /**
- * Toggles the advanced settings panel open or closed.
+ * Opens the settings modal. The current persisted values are already loaded into
+ * the fields by loadSettings() on startup; no re-read is needed here.
  */
-function toggleAdvancedPanel() {
-  document.getElementById('advBody').classList.toggle('open');
-  document.getElementById('advArrow').classList.toggle('open');
+function openSettingsModal() {
+  document.getElementById('settingsModal').classList.add('open');
+  document.getElementById('systemPrompt').focus();
+}
+
+/**
+ * Closes the settings modal without saving any changes made during this session.
+ * Any slider movements since the modal was opened are discarded.
+ */
+function closeSettingsModal() {
+  document.getElementById('settingsModal').classList.remove('open');
+
+  // Revert unsaved slider / textarea state to whatever is in localStorage
+  loadSettings();
+}
+
+/**
+ * Persists the current modal field values to localStorage then closes the modal.
+ */
+function saveSettingsAndClose() {
+  saveSettings();
+  document.getElementById('settingsModal').classList.remove('open');
+  showToast('✓ SETTINGS SAVED');
 }
 
 // ── Provider Modal ──────────────────────────────────────────────────────────
@@ -2720,6 +2731,10 @@ function initAutoScrollBehavior() {
 
 document.getElementById('providerModal').addEventListener('click', function(event) {
   if (event.target === this) closeModal();
+});
+
+document.getElementById('settingsModal').addEventListener('click', function(event) {
+  if (event.target === this) closeSettingsModal();
 });
 
 // ── Initialization ──────────────────────────────────────────────────────────
