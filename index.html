@@ -1498,1818 +1498,1536 @@
 
 <script>
 /**
- * File:    llm-terminal.html (script section)
- * Purpose: State management, API calls, and UI rendering for the LLM chat client.
- * Depends: localStorage for persistence; DOM elements defined in the HTML above.
- * Notes:   All provider credentials are stored in localStorage (plain text).
- *          Streaming uses ReadableStream from the Fetch API.
- *          Images are compressed via canvas before storage to stay within the ~5MB
- *          localStorage limit. Ollama and OpenAI use different wire formats for
- *          vision input; conversion happens in buildMessageHistory().
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * REFACTORED LLM Terminal Chat Client
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 
+ * Architecture: Modular design using popular JavaScript patterns:
+ * - Module Pattern (IIFE) for encapsulation
+ * - Observer/Pub-Sub for reactive state changes
+ * - Service Layer for API & storage abstraction
+ * - Factory Pattern for entity creation
+ * - Facade Pattern for complex subsystems
+ * 
+ * Layers:
+ * 1. Config      – Constants and configuration
+ * 2. Services    – API calls, storage, validation
+ * 3. State Store – Centralized reactive state management
+ * 4. Entities    – Data models (Provider, Conversation, Message)
+ * 5. UI Layer    – Rendering and event handling (DOM separated from logic)
+ * 6. App         – Main orchestration and initialization
+ * ═══════════════════════════════════════════════════════════════════════════════
  */
 
-// ── Constants ──────────────────────────────────────────────────────────────
-
-const TOAST_DISPLAY_MS             = 3000;
-const AUTO_SCROLL_THRESHOLD_PX     = 80;
-const APPROX_CHARS_PER_TOKEN       = 4;
-const MAX_INPUT_HEIGHT_PX          = 160;
-const TOKEN_DISPLAY_RESET_MS       = 5000;
-const MIN_INPUT_HEIGHT_PX          = 48;
-
-// Image compression: resize to this long-edge before base64 encoding.
-// Keeps individual images under ~200KB and prevents localStorage overflow.
-const IMAGE_COMPRESS_MAX_EDGE_PX   = 1024;
-const IMAGE_COMPRESS_QUALITY       = 0.82;   // JPEG quality (0–1)
-const IMAGE_COMPRESS_OUTPUT_FORMAT = 'image/jpeg';
-
-const MAX_PENDING_IMAGES           = 4;       // Caps per-message image count
-
-const PROTO_COLORS = {
-  ollama: '#286983',
-  openai: '#56949f',
-};
-
-const PROTO_HINTS = {
-  ollama: 'Ollama /api/chat — supports thinking field',
-  openai: 'OpenAI-compatible /v1/chat/completions — Groq, Together, etc.',
-};
-
-const PROVIDER_PRESETS = [
-  { name: 'Groq',      url: 'https://api.groq.com/openai',                             proto: 'openai', tag: 'FREE·快'  },
-  { name: 'Mistral',   url: 'https://api.mistral.ai/v1',                               proto: 'openai', tag: 'FREE·EU'  },
-  { name: 'Google AI', url: 'https://generativelanguage.googleapis.com/v1beta/openai', proto: 'openai', tag: 'Gemini'   },
-  { name: 'Cerebras',  url: 'https://api.cerebras.ai/v1',                              proto: 'openai', tag: 'LPU·免费' },
-  { name: 'Together',  url: 'https://api.together.xyz/v1',                             proto: 'openai', tag: '$25'      },
-  { name: 'OpenRouter',url: 'https://openrouter.ai/api/v1',                            proto: 'openai', tag: '聚合'     },
-  { name: '硅基流动',  url: 'https://api.siliconflow.ai/v1',                           proto: 'openai', tag: '模型多'   },
-  { name: '火山引擎',  url: 'https://ark.cn-beijing.volces.com/api/v3',                proto: 'openai', tag: '字节跳动' },
-  { name: '智谱 GLM',  url: 'https://api.z.ai/api/paas/v4',                           proto: 'openai', tag: '国内免费' },
-  { name: 'Kimi',      url: 'https://api.moonshot.cn/v1',                              proto: 'openai', tag: '长文档'   },
-  { name: 'Ollama',    url: 'http://localhost:11434',                                  proto: 'ollama', tag: '本地'     },
-  { name: 'LM Studio', url: 'http://localhost:1234/v1',                                proto: 'openai', tag: '本地'     },
-];
-
-const STORAGE_KEYS = {
-  providers:      'llm_providers',
-  activeProvider: 'llm_active_provider',
-  conversations:  'llm_convs',
-  settings:       'llm_settings',
-};
-
-// ── Application State ───────────────────────────────────────────────────────
-
-let providers         = JSON.parse(localStorage.getItem(STORAGE_KEYS.providers)      || '[]');
-let activeProviderId  = localStorage.getItem(STORAGE_KEYS.activeProvider)            || null;
-let conversations     = JSON.parse(localStorage.getItem(STORAGE_KEYS.conversations)  || '[]');
-let activeConvId      = null;
-let isStreaming        = false;
-let editingProviderId = null;
-let selectedProto     = 'ollama';
-let abortController   = null;
-let shouldAutoScroll  = true;
-
-// Images queued for the next outgoing message. Each entry is a data-URL string.
-let pendingImages = [];
-
-// ── Confirm Dialog ──────────────────────────────────────────────────────────
-
-/**
- * Shows a custom modal confirmation dialog instead of the browser's native confirm().
- *
- * Args:
- *   message (string) — The question to display.
- *
- * Returns: (Promise<boolean>) true if confirmed, false otherwise.
- */
-function showConfirm(message) {
-  return new Promise(resolve => {
-    document.getElementById('confirmMsg').textContent = message;
-    const overlay = document.getElementById('confirmModal');
-    overlay.classList.add('open');
-
-    function closeWithResult(result) {
-      overlay.classList.remove('open');
-      document.getElementById('confirmYes').removeEventListener('click', onConfirm);
-      document.getElementById('confirmNo').removeEventListener('click', onCancel);
-      document.getElementById('confirmCancel').removeEventListener('click', onCancel);
-      overlay.removeEventListener('click', onOverlayClick);
-      resolve(result);
-    }
-
-    function onConfirm()           { closeWithResult(true);  }
-    function onCancel()            { closeWithResult(false); }
-    function onOverlayClick(event) { if (event.target === overlay) closeWithResult(false); }
-
-    document.getElementById('confirmYes').addEventListener('click', onConfirm);
-    document.getElementById('confirmNo').addEventListener('click', onCancel);
-    document.getElementById('confirmCancel').addEventListener('click', onCancel);
-    overlay.addEventListener('click', onOverlayClick);
-  });
-}
-
-// ── Streaming Control ───────────────────────────────────────────────────────
-
-/**
- * Toggles send/stop button visibility and disables the send button while streaming.
- *
- * Args:
- *   isCurrentlyStreaming (boolean) — true to enter streaming state, false to exit.
- */
-function setStreamingState(isCurrentlyStreaming) {
-  isStreaming = isCurrentlyStreaming;
-  document.getElementById('sendBtn').disabled = isCurrentlyStreaming;
-  document.getElementById('stopBtn').classList.toggle('visible', isCurrentlyStreaming);
-}
-
-/**
- * Aborts the in-flight streaming request, if one exists.
- * The resulting AbortError is caught in runAssistant() and handled gracefully.
- */
-function stopStreaming() {
-  if (abortController) {
-    abortController.abort();
-    abortController = null;
-  }
-}
-
-// ── Provider Helpers ────────────────────────────────────────────────────────
-
-/**
- * Returns the active provider object, or null if none is selected.
- *
- * Returns: (object|null)
- */
-function getActiveProvider() {
-  return providers.find(provider => provider.id === activeProviderId) || null;
-}
-
-/**
- * Returns true if the active provider has vision support enabled.
- *
- * Returns: (boolean)
- */
-function isVisionEnabled() {
-  return Boolean(getActiveProvider()?.supportsVision);
-}
-
-// ── Settings Persistence ────────────────────────────────────────────────────
-
-/**
- * Reads the current settings controls and persists them to localStorage.
- */
-function saveSettings() {
-  const rawMaxTokens = document.getElementById('maxTokens').value;
-
-  const settings = {
-    temperature:  parseFloat(document.getElementById('tempSlider').value),
-    topP:         parseFloat(document.getElementById('topPSlider').value),
-    maxTokens:    rawMaxTokens ? parseInt(rawMaxTokens) : null,
-    systemPrompt: document.getElementById('systemPrompt').value,
-  };
-
-  localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(settings));
-}
-
-/**
- * Loads persisted settings from localStorage and populates the controls.
- */
-function loadSettings() {
-  let settings;
-
-  try {
-    settings = JSON.parse(localStorage.getItem(STORAGE_KEYS.settings) || '{}');
-  } catch (parseError) {
-    console.warn('Failed to parse saved settings, using defaults:', parseError);
-    settings = {};
-  }
-
-  if (settings.temperature !== undefined) {
-    document.getElementById('tempSlider').value = settings.temperature;
-    document.getElementById('tempVal').textContent = Number(settings.temperature).toFixed(2);
-  }
-
-  if (settings.topP !== undefined) {
-    document.getElementById('topPSlider').value = settings.topP;
-    document.getElementById('topPVal').textContent = Number(settings.topP).toFixed(2);
-  }
-
-  if (settings.maxTokens) {
-    document.getElementById('maxTokens').value = settings.maxTokens;
-  }
-
-  if (settings.systemPrompt) {
-    document.getElementById('systemPrompt').value = settings.systemPrompt;
-  }
-}
-
-// ── Settings Modal ──────────────────────────────────────────────────────────
-
-function openSettingsModal() {
-  document.getElementById('settingsModal').classList.add('open');
-  document.getElementById('systemPrompt').focus();
-}
-
-function closeSettingsModal() {
-  document.getElementById('settingsModal').classList.remove('open');
-  loadSettings();
-}
-
-function saveSettingsAndClose() {
-  saveSettings();
-  document.getElementById('settingsModal').classList.remove('open');
-  showToast('✓ SETTINGS SAVED');
-}
-
-// ── Provider Modal ──────────────────────────────────────────────────────────
-
-/**
- * Opens the provider add/edit modal, pre-populating fields when editing.
- *
- * Args:
- *   providerId (string|null) — ID of the provider to edit, or null for a new one.
- */
-function openModal(providerId = null) {
-  editingProviderId = providerId;
-
-  const isEditing = Boolean(providerId);
-  document.getElementById('modalTitle').textContent = isEditing ? 'EDIT PROVIDER' : 'ADD PROVIDER';
-
-  if (isEditing) {
-    const existingProvider = providers.find(provider => provider.id === providerId);
-    if (existingProvider) {
-      document.getElementById('providerName').value = existingProvider.name;
-      document.getElementById('providerUrl').value  = existingProvider.url;
-      document.getElementById('providerKey').value  = existingProvider.key || '';
-      selectProto(existingProvider.proto);
-      setVisionToggle(Boolean(existingProvider.supportsVision));
-    }
-  } else {
-    document.getElementById('providerName').value = '';
-    document.getElementById('providerUrl').value  = '';
-    document.getElementById('providerKey').value  = '';
-    selectProto('ollama');
-    setVisionToggle(false);
-  }
-
-  renderPresetGrid();
-  document.getElementById('providerModal').classList.add('open');
-  document.getElementById('providerName').focus();
-}
-
-function closeModal() {
-  document.getElementById('providerModal').classList.remove('open');
-  editingProviderId = null;
-}
-
-/**
- * Selects a protocol option in the modal and updates the hint text.
- *
- * Args:
- *   proto (string) — 'ollama' or 'openai'.
- */
-function selectProto(proto) {
-  selectedProto = proto;
-
-  document.querySelectorAll('.proto-option').forEach(option => {
-    option.classList.toggle('selected', option.dataset.proto === proto);
-  });
-
-  document.getElementById('protoHint').textContent = PROTO_HINTS[proto];
-
-  const urlInput = document.getElementById('providerUrl');
-  if (!urlInput.value) {
-    urlInput.placeholder = proto === 'ollama'
-      ? 'http://localhost:11434'
-      : 'https://api.groq.com/openai';
-  }
-}
-
-/**
- * Toggles the vision support checkbox visual state in the provider modal.
- *
- * Args:
- *   isEnabled (boolean) — Whether vision support should be checked.
- */
-function setVisionToggle(isEnabled) {
-  const row       = document.getElementById('visionToggleRow');
-  const indicator = document.getElementById('visionCheckIndicator');
-  const checkbox  = document.getElementById('providerVision');
-
-  checkbox.checked    = isEnabled;
-  indicator.textContent = isEnabled ? '✓' : '';
-  row.classList.toggle('enabled', isEnabled);
-}
-
-/**
- * Handles clicks on the vision toggle row by flipping the checkbox state.
- */
-function toggleVisionSupport() {
-  const checkbox = document.getElementById('providerVision');
-  setVisionToggle(!checkbox.checked);
-}
-
-// ── Preset Grid ─────────────────────────────────────────────────────────────
-
-function renderPresetGrid() {
-  const grid = document.getElementById('presetGrid');
-  if (!grid) return;
-
-  grid.innerHTML = PROVIDER_PRESETS.map((preset, index) => `
-    <div class="preset-chip" onclick="applyPreset(${index})" title="${preset.url}">
-      <span class="chip-name">${escapeHtml(preset.name)}</span>
-      <span class="chip-tag">${preset.tag}</span>
-    </div>
-  `).join('');
-}
-
-/**
- * Fills the provider form fields with values from a preset, then focuses the API key field.
- *
- * Args:
- *   presetIndex (number) — Index into PROVIDER_PRESETS.
- */
-function applyPreset(presetIndex) {
-  const preset = PROVIDER_PRESETS[presetIndex];
-
-  document.getElementById('providerName').value = preset.name;
-  document.getElementById('providerUrl').value  = preset.url;
-  selectProto(preset.proto);
-
-  document.querySelectorAll('.preset-chip').forEach((chip, index) => {
-    chip.style.borderColor = index === presetIndex ? 'var(--accent2)' : '';
-    chip.style.color       = index === presetIndex ? 'var(--accent2)' : '';
-  });
-
-  document.getElementById('providerKey').focus();
-}
-
-// ── Provider CRUD ───────────────────────────────────────────────────────────
-
-/**
- * Validates modal fields and saves the provider (create or update) to state and localStorage.
- */
-function saveProvider() {
-  const name           = document.getElementById('providerName').value.trim();
-  const url            = document.getElementById('providerUrl').value.trim().replace(/\/$/, '');
-  const key            = document.getElementById('providerKey').value.trim();
-  const supportsVision = document.getElementById('providerVision').checked;
-
-  if (!name) { showToast('✕ Enter a name', true); return; }
-  if (!url)  { showToast('✕ Enter a URL',  true); return; }
-
-  if (editingProviderId) {
-    const existingIndex = providers.findIndex(provider => provider.id === editingProviderId);
-    if (existingIndex >= 0) {
-      providers[existingIndex] = {
-        ...providers[existingIndex],
-        name, url, key, proto: selectedProto, supportsVision,
-      };
-    }
-  } else {
-    providers.push({
-      id: Date.now().toString(),
-      name, url, key,
-      proto:          selectedProto,
-      supportsVision: supportsVision,
-      lastModel:      null,
-    });
-  }
-
-  localStorage.setItem(STORAGE_KEYS.providers, JSON.stringify(providers));
-  closeModal();
-  renderProviderList();
-  updateAttachButtonVisibility();
-
-  if (providers.length === 1) activateProvider(providers[0].id);
-}
-
-/**
- * Prompts for confirmation then deletes a provider from state and localStorage.
- *
- * Args:
- *   providerId (string) — The provider to delete.
- *   event      (Event)  — Click event; propagation is stopped.
- */
-async function deleteProvider(providerId, event) {
-  event.stopPropagation();
-
-  const targetProvider = providers.find(provider => provider.id === providerId);
-  const isConfirmed    = await showConfirm(`DELETE PROVIDER\n"${targetProvider?.name || providerId}"?`);
-  if (!isConfirmed) return;
-
-  providers = providers.filter(provider => provider.id !== providerId);
-  localStorage.setItem(STORAGE_KEYS.providers, JSON.stringify(providers));
-
-  if (activeProviderId === providerId) {
-    activeProviderId = providers[0]?.id || null;
-    localStorage.setItem(STORAGE_KEYS.activeProvider, activeProviderId || '');
-  }
-
-  renderProviderList();
-
-  if (activeProviderId) {
-    activateProvider(activeProviderId);
-  } else {
-    setConnectionStatus(false, 'NO PROVIDER');
-    document.getElementById('activeBadge').style.display = 'none';
-    document.getElementById('modelSelect').innerHTML = '<option value="">— select provider —</option>';
-    updateAttachButtonVisibility();
-  }
-}
-
-/**
- * Sets the given provider as active and triggers a model list refresh.
- *
- * Args:
- *   providerId (string) — The provider to activate.
- */
-function activateProvider(providerId) {
-  activeProviderId = providerId;
-  localStorage.setItem(STORAGE_KEYS.activeProvider, providerId);
-  renderProviderList();
-  loadModels();
-  updateAttachButtonVisibility();
-
-  // Clear any pending images — they may not be valid for the new provider
-  clearPendingImages();
-}
-
-// ── Provider Rendering ──────────────────────────────────────────────────────
-
-function renderProviderList() {
-  const container = document.getElementById('providerList');
-
-  if (!providers.length) {
-    container.innerHTML = '<div style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--text-dim);text-align:center;padding:8px;letter-spacing:1px">NO PROVIDERS</div>';
-    return;
-  }
-
-  container.innerHTML = providers.map(provider => {
-    const dotColor = PROTO_COLORS[provider.proto];
-    const isActive = provider.id === activeProviderId;
-    const hostOnly = escapeHtml(provider.url.replace(/^https?:\/\//, ''));
-    const visionBadge = provider.supportsVision
-      ? '<span style="font-size:9px;color:var(--accent3);margin-left:4px">👁</span>'
-      : '';
-
-    return `
-      <div class="provider-item ${isActive ? 'active' : ''}"
-           onclick="activateProvider('${provider.id}')">
-        <div class="provider-dot" style="background:${dotColor};box-shadow:0 0 6px ${dotColor}"></div>
-        <div class="provider-info">
-          <div class="provider-name">${escapeHtml(provider.name)}${visionBadge}</div>
-          <div class="provider-url">${hostOnly}</div>
-        </div>
-        <div class="provider-actions">
-          <button class="icon-btn"     onclick="event.stopPropagation();openModal('${provider.id}')" title="Edit">✎</button>
-          <button class="icon-btn del" onclick="deleteProvider('${provider.id}', event)"             title="Delete">✕</button>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-// ── Model Loading ───────────────────────────────────────────────────────────
-
-async function loadModels() {
-  const provider = getActiveProvider();
-  if (!provider) return;
-
-  document.getElementById('modelSelect').innerHTML = '<option value="">— connecting... —</option>';
-  document.getElementById('activeBadge').style.display = 'none';
-  setConnectionStatus(false, 'CONNECTING...');
-
-  try {
-    const modelNames = await fetchModelNames(provider);
-    populateModelDropdown(provider, modelNames);
-    setConnectionStatus(true, `${modelNames.length} MODELS`);
-    updateProviderBadge();
-    showToast(`◈ ${provider.name}: ${modelNames.length} models`);
-
-  } catch (fetchError) {
-    setConnectionStatus(false, 'CONNECT FAILED');
-    showToast(`✕ ${fetchError.message}`, true);
-    document.getElementById('modelSelect').innerHTML = '<option value="">— connect failed —</option>';
-    document.getElementById('activeBadge').style.display = 'none';
-    console.error(`Failed to load models for provider "${provider.name}":`, fetchError);
-  }
-}
-
-/**
- * Fetches model names from the provider using its declared protocol.
- *
- * Args:
- *   provider (object) — Provider record.
- *
- * Returns: (Promise<string[]>)
- *
- * Raises: Error if the HTTP request fails.
- */
-async function fetchModelNames(provider) {
-  if (provider.proto === 'ollama') return fetchOllamaModelNames(provider);
-  return fetchOpenAIModelNames(provider);
-}
-
-/**
- * Fetches model names via the Ollama /api/tags endpoint.
- *
- * Args:
- *   provider (object) — Provider record.
- *
- * Returns: (Promise<string[]>)
- */
-async function fetchOllamaModelNames(provider) {
-  const headers  = provider.key ? { Authorization: `Bearer ${provider.key}` } : {};
-  const response = await fetch(`${provider.url}/api/tags`, { headers });
-
-  if (!response.ok) throw new Error('HTTP ' + response.status);
-
-  const data = await response.json();
-  return (data.models || []).map(model => model.name);
-}
-
-/**
- * Fetches model names via the OpenAI-compatible /models endpoint.
- *
- * Args:
- *   provider (object) — Provider record.
- *
- * Returns: (Promise<string[]>)
- */
-async function fetchOpenAIModelNames(provider) {
-  const hasVersionSuffix = provider.url.endsWith('/v1') || /\/v\d+$/.test(provider.url);
-  const modelsUrl = hasVersionSuffix
-    ? `${provider.url}/models`
-    : `${provider.url}/v1/models`;
-
-  const response = await fetch(modelsUrl, {
-    headers: {
-      Authorization:  `Bearer ${provider.key || 'none'}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) throw new Error('HTTP ' + response.status);
-
-  const data = await response.json();
-  return (data.data || []).map(model => model.id).sort();
-}
-
-/**
- * Fills the model <select> with provided model names, restoring any prior selection.
- *
- * Args:
- *   provider   (object)   — The active provider.
- *   modelNames (string[]) — Model names to display.
- */
-function populateModelDropdown(provider, modelNames) {
-  const select = document.getElementById('modelSelect');
-
-  select.innerHTML = modelNames.length
-    ? modelNames.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('')
-    : '<option value="">No models found</option>';
-
-  if (provider.lastModel && modelNames.includes(provider.lastModel)) {
-    select.value = provider.lastModel;
-  }
-
-  select.onchange = () => {
-    const activeProvider = getActiveProvider();
-    if (activeProvider) {
-      activeProvider.lastModel = select.value;
-      localStorage.setItem(STORAGE_KEYS.providers, JSON.stringify(providers));
-    }
-    updateProviderBadge();
-  };
-}
-
-// ── Status & Badge ──────────────────────────────────────────────────────────
-
-/**
- * Updates the header connection status indicator.
- *
- * Args:
- *   isOnline  (boolean) — true = green pulse, false = red static dot.
- *   statusMsg (string)  — Short status label.
- */
-function setConnectionStatus(isOnline, statusMsg) {
-  document.getElementById('statusDot').className = 'status-dot' + (isOnline ? '' : ' offline');
-  document.getElementById('statusText').textContent = statusMsg;
-}
-
-/**
- * Updates the provider badge in the header, including the vision indicator if applicable.
- */
-function updateProviderBadge() {
-  const provider = getActiveProvider();
-  const badge    = document.getElementById('activeBadge');
-
-  if (!provider) {
-    badge.style.display = 'none';
-    return;
-  }
-
-  badge.style.display = 'inline-flex';
-  document.getElementById('badgeName').textContent  = provider.name;
-  document.getElementById('badgeProto').textContent = provider.proto.toUpperCase();
-
-  const visionTag = document.getElementById('badgeVision');
-  visionTag.style.display = provider.supportsVision ? 'inline' : 'none';
-}
-
-/**
- * Shows or hides the attach button based on whether the active provider supports vision.
- * An invisible attach button would confuse users, so we hide it entirely.
- */
-function updateAttachButtonVisibility() {
-  const attachBtn = document.getElementById('attachBtn');
-  attachBtn.style.display = isVisionEnabled() ? 'flex' : 'none';
-
-  // Also clear pending images when vision is no longer available
-  if (!isVisionEnabled()) clearPendingImages();
-}
-
-// ── Image Handling ──────────────────────────────────────────────────────────
-
-/**
- * Programmatically clicks the hidden file input to open the OS file picker.
- */
-function triggerImageFilePicker() {
-  document.getElementById('imageFileInput').click();
-}
-
-/**
- * Handles the change event from the file input. Compresses and queues each selected image.
- *
- * Args:
- *   event (Event) — The file input change event.
- */
-async function handleImageFileSelection(event) {
-  const files = Array.from(event.target.files);
-  // Reset the input so the same file can be re-selected if needed
-  event.target.value = '';
-
-  for (const file of files) {
-    if (pendingImages.length >= MAX_PENDING_IMAGES) {
-      showToast(`✕ Max ${MAX_PENDING_IMAGES} images per message`, true);
-      break;
-    }
-    await addImageToPending(file);
-  }
-}
-
-/**
- * Intercepts paste events on the textarea to capture pasted images.
- * Text pastes fall through to the browser's default handler.
- *
- * Args:
- *   event (ClipboardEvent) — The paste event from the textarea.
- */
-async function handlePaste(event) {
-  if (!isVisionEnabled()) return;
-
-  const items = Array.from(event.clipboardData?.items || []);
-  const imageItems = items.filter(item => item.type.startsWith('image/'));
-  if (!imageItems.length) return;
-
-  // Prevent the image data-URL from being pasted as text into the textarea
-  event.preventDefault();
-
-  for (const item of imageItems) {
-    if (pendingImages.length >= MAX_PENDING_IMAGES) break;
-    const file = item.getAsFile();
-    if (file) await addImageToPending(file);
-  }
-}
-
-/**
- * Compresses a File to a JPEG data-URL and adds it to the pending images queue.
- * Shows a toast on success; silently logs errors without crashing.
- *
- * Args:
- *   file (File) — The image file to compress and queue.
- */
-async function addImageToPending(file) {
-  try {
-    const dataUrl = await compressImageFile(file);
-    pendingImages.push(dataUrl);
-    renderPendingImagesBar();
-    showToast(`🖼 Image attached (${pendingImages.length}/${MAX_PENDING_IMAGES})`);
-  } catch (compressionError) {
-    console.error('Failed to process image:', compressionError);
-    showToast('✕ Failed to process image', true);
-  }
-}
-
-/**
- * Compresses an image File via a canvas element and returns a JPEG data-URL.
- * Scales the image down so its longest edge does not exceed IMAGE_COMPRESS_MAX_EDGE_PX.
- *
- * Args:
- *   file (File) — The source image file.
- *
- * Returns: (Promise<string>) JPEG data-URL of the compressed image.
- *
- * Raises: Error if the image cannot be loaded or the canvas is unavailable.
- */
-function compressImageFile(file) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
-
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-
-      // Calculate scaled dimensions, preserving aspect ratio
-      let { width, height } = img;
-      const maxEdge = IMAGE_COMPRESS_MAX_EDGE_PX;
-
-      if (width > maxEdge || height > maxEdge) {
-        if (width >= height) {
-          height = Math.round((height / width) * maxEdge);
-          width  = maxEdge;
-        } else {
-          width  = Math.round((width / height) * maxEdge);
-          height = maxEdge;
-        }
-      }
-
-      const canvas = document.createElement('canvas');
-      canvas.width  = width;
-      canvas.height = height;
-
-      const ctx = canvas.getContext('2d');
-      if (!ctx) { reject(new Error('Canvas 2D context unavailable')); return; }
-
-      ctx.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL(IMAGE_COMPRESS_OUTPUT_FORMAT, IMAGE_COMPRESS_QUALITY));
-    };
-
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error(`Failed to load image: ${file.name}`));
-    };
-
-    img.src = objectUrl;
-  });
-}
-
-/**
- * Removes one image from the pending queue by index and re-renders the bar.
- *
- * Args:
- *   imageIndex (number) — Index of the image to remove.
- */
-function removePendingImage(imageIndex) {
-  pendingImages.splice(imageIndex, 1);
-  renderPendingImagesBar();
-}
-
-/**
- * Clears all pending images and hides the preview bar.
- */
-function clearPendingImages() {
-  pendingImages = [];
-  renderPendingImagesBar();
-}
-
-/**
- * Re-renders the pending image preview bar above the text input.
- * Shows the bar only when there are images queued.
- */
-function renderPendingImagesBar() {
-  const bar       = document.getElementById('pendingImagesBar');
-  const attachBtn = document.getElementById('attachBtn');
-
-  if (!pendingImages.length) {
-    bar.classList.remove('has-images');
-    bar.innerHTML = '<span class="pending-images-label">ATTACHED:</span>';
-    attachBtn.classList.remove('has-images');
-    return;
-  }
-
-  bar.classList.add('has-images');
-  attachBtn.classList.add('has-images');
-
-  const thumbnailsHtml = pendingImages.map((dataUrl, index) => `
-    <div class="pending-image-item">
-      <img class="pending-image-thumb" src="${dataUrl}" alt="Pending image ${index + 1}">
-      <button class="pending-image-remove" onclick="removePendingImage(${index})" title="Remove">×</button>
-    </div>
-  `).join('');
-
-  bar.innerHTML = `<span class="pending-images-label">ATTACHED:</span>${thumbnailsHtml}`;
-}
-
-// ── Conversation Management ─────────────────────────────────────────────────
-
-function saveConversations() {
-  localStorage.setItem(STORAGE_KEYS.conversations, JSON.stringify(conversations));
-}
-
-/**
- * Returns the active conversation object, or undefined if none is selected.
- *
- * Returns: (object|undefined)
- */
-function getActiveConversation() {
-  return conversations.find(conv => conv.id === activeConvId);
-}
-
-function newConversation() {
-  const newConv = {
-    id:        Date.now().toString(),
-    title:     'NEW SESSION',
-    messages:  [],
-    createdAt: new Date().toISOString(),
-  };
-
-  conversations.unshift(newConv);
-  saveConversations();
-  selectConversation(newConv.id);
-  renderConversationList();
-}
-
-/**
- * Selects a conversation by ID and re-renders the message area.
- *
- * Args:
- *   conversationId (string) — ID to activate.
- */
-function selectConversation(conversationId) {
-  activeConvId = conversationId;
-  renderConversationList();
-  renderMessages();
-}
-
-/**
- * Prompts for confirmation then deletes the specified conversation.
- *
- * Args:
- *   conversationId (string) — ID to delete.
- *   event          (Event)  — Click event; propagation is stopped.
- */
-async function deleteConversation(conversationId, event) {
-  event.stopPropagation();
-
-  const targetConv  = conversations.find(conv => conv.id === conversationId);
-  const isConfirmed = await showConfirm(`DELETE SESSION\n"${targetConv?.title || 'this session'}"?`);
-  if (!isConfirmed) return;
-
-  conversations = conversations.filter(conv => conv.id !== conversationId);
-
-  if (activeConvId === conversationId) {
-    activeConvId = conversations[0]?.id || null;
-  }
-
-  saveConversations();
-  renderConversationList();
-  renderMessages();
-}
-
-async function clearAllConversations() {
-  const isConfirmed = await showConfirm('CLEAR ALL SESSIONS?\nThis cannot be undone.');
-  if (!isConfirmed) return;
-
-  conversations = [];
-  activeConvId  = null;
-  saveConversations();
-  renderConversationList();
-  renderMessages();
-}
-
-// ── Conversation List Rendering ─────────────────────────────────────────────
-
-function renderConversationList() {
-  const list = document.getElementById('conversationList');
-
-  if (!conversations.length) {
-    list.innerHTML = '<div style="padding:12px;font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--text-dim);letter-spacing:2px;text-align:center">NO SESSIONS</div>';
-    return;
-  }
-
-  list.innerHTML = conversations.map(conv => `
-    <div class="conv-item ${conv.id === activeConvId ? 'active' : ''}"
-         onclick="selectConversation('${conv.id}')">
-      <button class="conv-delete" onclick="deleteConversation('${conv.id}', event)">×</button>
-      <div class="conv-title">${escapeHtml(conv.title)}</div>
-      <div class="conv-meta">${conv.messages.length} MSG · ${formatDate(conv.createdAt)}</div>
-    </div>
-  `).join('');
-}
-
-// ── Message Rendering ───────────────────────────────────────────────────────
-
-function renderMessages() {
-  const area = document.getElementById('chatArea');
-  const conv = getActiveConversation();
-
-  if (!conv || !conv.messages.length) {
-    area.innerHTML = buildEmptyStateHtml();
-    return;
-  }
-
-  const lastMessageIndex = conv.messages.length - 1;
-  area.innerHTML = conv.messages
-    .map((msg, index) => buildMessageHtml(msg, index, index === lastMessageIndex))
-    .join('');
-
-  shouldAutoScroll = true;
-  area.scrollTop = area.scrollHeight;
-}
-
-function buildEmptyStateHtml() {
-  return `
-    <div class="empty-state">
-      <div class="empty-geo">
-        <svg viewBox="0 0 120 120" fill="none">
-          <polygon points="60,5 115,32.5 115,87.5 60,115 5,87.5 5,32.5"  stroke="#dfdad9" stroke-width="1"/>
-          <polygon points="60,20 100,40 100,80 60,100 20,80 20,40"        stroke="#cecacd" stroke-width="1"/>
-          <polygon points="60,35 85,47.5 85,72.5 60,85 35,72.5 35,47.5"  stroke="#286983" stroke-width="1" opacity="0.5"/>
-          <circle cx="60" cy="60" r="8" stroke="#286983" stroke-width="1" opacity="0.8"/>
-          <circle cx="60" cy="60" r="3" fill="#286983" opacity="0.6"/>
-        </svg>
-      </div>
-      <div class="empty-text">AWAITING INPUT</div>
-    </div>`;
-}
-
-/**
- * Builds the HTML string for a single chat message bubble.
- * Handles both plain-string content (legacy/assistant messages) and
- * array content (user messages that may contain images).
- *
- * Args:
- *   message       (object)  — Message record: { role, content, images?, thinking?, time }
- *   messageIndex  (number)  — Position in the messages array.
- *   isLastMessage (boolean) — True for the final message; shows Regenerate button.
- *
- * Returns: (string) HTML markup.
- */
-function buildMessageHtml(message, messageIndex, isLastMessage) {
-  const isUserMessage = message.role === 'user';
-
-  // Render any images attached to this message (user messages only)
-  const imagesHtml = buildMessageImagesHtml(message.images);
-
-  const thinkingHtml = message.thinking
-    ? `<div class="thinking-block">
-         <div class="thinking-label">// CHAIN OF THOUGHT</div>
-         ${escapeHtml(message.thinking)}
-       </div>`
-    : '';
-
-  const textContent = extractTextContent(message.content);
-
-  const copyButton = `<button class="msg-btn" onclick="copyMessageToClipboard(this, ${messageIndex})">⎘ COPY</button>`;
-  const regenButton = (isLastMessage && !isUserMessage && textContent)
-    ? `<button class="msg-btn regen" onclick="regenerateLastResponse()">↺ REGEN</button>`
-    : '';
-
-  const avatarHtml = isUserMessage
-    ? `<svg viewBox="0 0 32 32" fill="none">
-         <polygon points="16,2 30,9 30,23 16,30 2,23 2,9" stroke="#ea9d34" stroke-width="1" fill="rgba(234,157,52,0.08)"/>
-         <polygon points="16,8 24,12 24,20 16,24 8,20 8,12" stroke="#ea9d34" stroke-width="0.5" opacity="0.5"/>
-         <circle cx="16" cy="16" r="3" fill="#ea9d34" opacity="0.8"/>
-       </svg>`
-    : `<svg viewBox="0 0 32 32" fill="none">
-         <rect x="2" y="2" width="28" height="28" stroke="#286983" stroke-width="1" fill="rgba(40,105,131,0.07)"/>
-         <rect x="7" y="7" width="18" height="18" stroke="#286983" stroke-width="0.5" opacity="0.5"/>
-         <circle cx="16" cy="16" r="4" stroke="#286983" stroke-width="1"/>
-         <circle cx="16" cy="16" r="1.5" fill="#286983" opacity="0.8"/>
-       </svg>`;
-
-  return `
-    <div class="message ${message.role}">
-      <div class="message-avatar">${avatarHtml}</div>
-      <div class="message-content">
-        <div class="message-header">
-          <span class="message-role role-${message.role}">${isUserMessage ? 'USER' : 'ASSISTANT'}</span>
-          <span class="message-time">${formatTime(message.time)}</span>
-        </div>
-        ${thinkingHtml}
-        <div class="message-body">
-          ${imagesHtml}
-          ${formatContent(textContent)}
-        </div>
-        <div class="message-actions">${copyButton}${regenButton}</div>
-      </div>
-    </div>`;
-}
-
-/**
- * Builds HTML for the image thumbnails shown inside a message bubble.
- * Returns an empty string when there are no images.
- *
- * Args:
- *   images (string[]|undefined) — Array of data-URL strings stored on the message.
- *
- * Returns: (string) HTML markup, or '' if no images.
- */
-function buildMessageImagesHtml(images) {
-  if (!images || !images.length) return '';
-
-  const thumbsHtml = images.map((dataUrl, index) => `
-    <img class="message-image-thumb"
-         src="${dataUrl}"
-         alt="Attached image ${index + 1}"
-         onclick="openLightbox('${escapeHtml(dataUrl)}')"
-         title="Click to enlarge">
-  `).join('');
-
-  return `<div class="message-images">${thumbsHtml}</div>`;
-}
-
-/**
- * Extracts the plain text from a message content field.
- * Content may be a plain string (most messages) or an array (multimodal messages).
- *
- * Args:
- *   content (string|object[]) — The message content field.
- *
- * Returns: (string) The text portion of the content.
- */
-function extractTextContent(content) {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content))     return '';
-
-  return content
-    .filter(part => part.type === 'text')
-    .map(part => part.text)
-    .join('');
-}
-
-// ── Lightbox ────────────────────────────────────────────────────────────────
-
-/**
- * Opens the lightbox overlay to display an image at full size.
- *
- * Args:
- *   dataUrl (string) — The data-URL of the image to display.
- */
-function openLightbox(dataUrl) {
-  document.getElementById('lightboxImg').src = dataUrl;
-  document.getElementById('lightboxOverlay').classList.add('open');
-}
-
-/**
- * Closes the lightbox overlay and clears the image src to release memory.
- */
-function closeLightbox() {
-  document.getElementById('lightboxOverlay').classList.remove('open');
-  document.getElementById('lightboxImg').src = '';
-}
-
-// Close lightbox with Escape key
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') closeLightbox();
+// ════════════════════════════════════════════════════════════════════════════════
+// LAYER 1: CONFIGURATION & CONSTANTS
+// ════════════════════════════════════════════════════════════════════════════════
+
+const Config = Object.freeze({
+  // UI Constants
+  TOAST_DISPLAY_MS:         3000,
+  AUTO_SCROLL_THRESHOLD_PX: 80,
+  MAX_INPUT_HEIGHT_PX:      160,
+  MIN_INPUT_HEIGHT_PX:      48,
+  TOKEN_DISPLAY_RESET_MS:   5000,
+  APPROX_CHARS_PER_TOKEN:   4,
+
+  // Image Compression
+  IMAGE_COMPRESS_MAX_EDGE_PX:   1024,
+  IMAGE_COMPRESS_QUALITY:       0.82,
+  IMAGE_COMPRESS_OUTPUT_FORMAT: 'image/jpeg',
+  MAX_PENDING_IMAGES:           4,
+
+  // Storage Keys
+  STORAGE_KEYS: {
+    providers:      'llm_providers',
+    activeProvider: 'llm_active_provider',
+    conversations:  'llm_convs',
+    settings:       'llm_settings',
+  },
+
+  // Protocol Configuration
+  PROTO_COLORS: {
+    ollama: '#286983',
+    openai: '#56949f',
+  },
+
+  PROTO_HINTS: {
+    ollama: 'Ollama /api/chat — supports thinking field',
+    openai: 'OpenAI-compatible /v1/chat/completions — Groq, Together, etc.',
+  },
+
+  PROVIDER_PRESETS: [
+    { name: 'Groq',      url: 'https://api.groq.com/openai',                             proto: 'openai', tag: 'FREE·快'  },
+    { name: 'Mistral',   url: 'https://api.mistral.ai/v1',                               proto: 'openai', tag: 'FREE·EU'  },
+    { name: 'Google AI', url: 'https://generativelanguage.googleapis.com/v1beta/openai', proto: 'openai', tag: 'Gemini'   },
+    { name: 'Cerebras',  url: 'https://api.cerebras.ai/v1',                              proto: 'openai', tag: 'LPU·免费' },
+    { name: 'Together',  url: 'https://api.together.xyz/v1',                             proto: 'openai', tag: '$25'      },
+    { name: 'OpenRouter',url: 'https://openrouter.ai/api/v1',                            proto: 'openai', tag: '聚合'     },
+    { name: '硅基流动',  url: 'https://api.siliconflow.ai/v1',                           proto: 'openai', tag: '模型多'   },
+    { name: '火山引擎',  url: 'https://ark.cn-beijing.volces.com/api/v3',                proto: 'openai', tag: '字节跳动' },
+    { name: '智谱 GLM',  url: 'https://api.z.ai/api/paas/v4',                           proto: 'openai', tag: '国内免费' },
+    { name: 'Kimi',      url: 'https://api.moonshot.cn/v1',                              proto: 'openai', tag: '长文档'   },
+    { name: 'Ollama',    url: 'http://localhost:11434',                                  proto: 'ollama', tag: '本地'     },
+    { name: 'LM Studio', url: 'http://localhost:1234/v1',                                proto: 'openai', tag: '本地'     },
+  ],
 });
 
-// ── Message Actions ─────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════════
+// LAYER 2: UTILITY FUNCTIONS
+// ════════════════════════════════════════════════════════════════════════════════
 
-/**
- * Copies the text content of a message to the clipboard.
- *
- * Args:
- *   button       (HTMLElement) — The clicked button (label updated in place).
- *   messageIndex (number)      — Index of the message in the active conversation.
- */
-function copyMessageToClipboard(button, messageIndex) {
-  const conv = getActiveConversation();
-  if (!conv?.messages[messageIndex]) return;
+const Utils = {
+  escapeHtml(str) {
+    return String(str)
+      .replace(/&/g,  '&amp;')
+      .replace(/</g,  '&lt;')
+      .replace(/>/g,  '&gt;')
+      .replace(/"/g,  '&quot;');
+  },
 
-  const textToCopy = extractTextContent(conv.messages[messageIndex].content);
+  formatDate(isoDate) {
+    return new Date(isoDate).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+  },
 
-  navigator.clipboard.writeText(textToCopy).then(() => {
-    button.textContent = '✓ COPIED';
-    button.classList.add('copied');
-    setTimeout(() => {
-      button.textContent = '⎘ COPY';
-      button.classList.remove('copied');
-    }, 2000);
-  });
-}
+  formatTime(isoDate) {
+    return new Date(isoDate).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  },
 
-/**
- * Removes the last assistant message and re-runs the assistant for a new response.
- */
-async function regenerateLastResponse() {
-  if (isStreaming) return;
+  extractTextContent(content) {
+    if (typeof content === 'string') return content;
+    if (!Array.isArray(content)) return '';
+    return content.filter(part => part.type === 'text').map(part => part.text).join('');
+  },
 
-  const conv = getActiveConversation();
-  if (!conv || conv.messages.length < 2) return;
-  if (conv.messages[conv.messages.length - 1].role !== 'assistant') return;
-
-  conv.messages.pop();
-  saveConversations();
-  renderMessages();
-  await runAssistant(conv);
-}
-
-// ── Send Message ────────────────────────────────────────────────────────────
-
-/**
- * Reads the input field, appends a user message (with any pending images),
- * and triggers an assistant response.
- */
-async function sendMessage() {
-  if (isStreaming) return;
-
-  const inputEl  = document.getElementById('messageInput');
-  const userText = inputEl.value.trim();
-
-  // Allow sending with images even if text is empty
-  if (!userText && !pendingImages.length) return;
-
-  const selectedModel = document.getElementById('modelSelect').value;
-  if (!selectedModel) { showToast('✕ Select a model first', true); return; }
-
-  const provider = getActiveProvider();
-  if (!provider)  { showToast('✕ No active provider', true); return; }
-
-  if (!activeConvId) newConversation();
-
-  const conv = getActiveConversation();
-
-  // Snapshot pending images into the message record, then clear the queue
-  const attachedImages = [...pendingImages];
-  clearPendingImages();
-
-  conv.messages.push({
-    role:    'user',
-    content: userText,
-    images:  attachedImages.length ? attachedImages : undefined,
-    time:    new Date().toISOString(),
-  });
-
-  if (conv.title === 'NEW SESSION') {
-    const titleSource = userText || (attachedImages.length ? '[image]' : '');
-    conv.title = titleSource.slice(0, 40) + (titleSource.length > 40 ? '…' : '');
-  }
-
-  saveConversations();
-  inputEl.value = '';
-  inputEl.style.height = MIN_INPUT_HEIGHT_PX + 'px';
-  renderConversationList();
-  renderMessages();
-
-  await runAssistant(conv);
-}
-
-// ── Assistant Orchestration ─────────────────────────────────────────────────
-
-/**
- * Appends a placeholder assistant message, calls the appropriate streaming function,
- * and handles errors and cleanup.
- *
- * Args:
- *   conv (object) — The active conversation to append the response to.
- */
-async function runAssistant(conv) {
-  const provider      = getActiveProvider();
-  const selectedModel = document.getElementById('modelSelect').value;
-  const streamParams  = buildStreamParams();
-
-  conv.messages.push({ role: 'assistant', content: '', thinking: '', time: new Date().toISOString() });
-  renderMessages();
-
-  abortController = new AbortController();
-  setStreamingState(true);
-
-  const messageHistory = buildMessageHistory(conv, streamParams.systemPrompt, provider.proto);
-
-  try {
-    if (provider.proto === 'ollama') {
-      await streamOllama(provider, selectedModel, messageHistory, { ...streamParams, signal: abortController.signal }, conv);
-    } else {
-      await streamOpenAI(provider, selectedModel, messageHistory, { ...streamParams, signal: abortController.signal }, conv);
+  extractThinkTag(raw) {
+    const fullMatch = raw.match(/^<think>([\s\S]*?)<\/think>\s*/);
+    if (fullMatch) {
+      return { thinking: fullMatch[1].trim(), content: raw.slice(fullMatch[0].length) };
     }
+    if (raw.startsWith('<think>') && !raw.includes('</think>')) {
+      return { thinking: raw.slice(7).trim(), content: '' };
+    }
+    const bareCloseIndex = raw.indexOf('</think>');
+    if (bareCloseIndex !== -1) {
+      return {
+        thinking: raw.slice(0, bareCloseIndex).trim(),
+        content:  raw.slice(bareCloseIndex + '</think>'.length).trimStart(),
+      };
+    }
+    return { thinking: '', content: raw };
+  },
 
-  } catch (streamError) {
-    handleStreamError(conv, streamError);
-  } finally {
-    abortController = null;
-    setStreamingState(false);
+  formatContent(text) {
+    if (!text) return '';
+    return this.escapeHtml(text)
+      .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+      .replace(/`([^`]+)`/g,        '<code>$1</code>')
+      .replace(/\*\*(.*?)\*\*/g,    '<strong>$1</strong>')
+      .replace(/\n/g,               '<br>');
+  },
 
-    setTimeout(() => {
-      if (!isStreaming) document.getElementById('tokenCount').textContent = 'TOKENS: —';
-    }, TOKEN_DISPLAY_RESET_MS);
-  }
-}
+  generateId() {
+    return Date.now().toString();
+  },
+};
 
-/**
- * Reads the current settings controls and returns a params object for the streaming functions.
- *
- * Returns: (object) { temperature, topP, maxTokens, systemPrompt }
- */
-function buildStreamParams() {
-  const rawMaxTokens = document.getElementById('maxTokens').value;
+// ════════════════════════════════════════════════════════════════════════════════
+// LAYER 3: SERVICE LAYER (API & Storage abstraction)
+// ════════════════════════════════════════════════════════════════════════════════
 
-  return {
-    temperature:  parseFloat(document.getElementById('tempSlider').value),
-    topP:         parseFloat(document.getElementById('topPSlider').value),
-    maxTokens:    rawMaxTokens ? parseInt(rawMaxTokens) : null,
-    systemPrompt: document.getElementById('systemPrompt').value.trim(),
-  };
-}
+const StorageService = {
+  get(key) {
+    try {
+      return JSON.parse(localStorage.getItem(key) || 'null');
+    } catch (err) {
+      console.warn(`Storage parse error for key "${key}":`, err);
+      return null;
+    }
+  },
 
-/**
- * Builds the messages array for the API request, converting image data to the
- * correct wire format for the target protocol.
- *
- * Ollama native: images go in a top-level `images` array (base64 only, no prefix);
- *   the content field stays as a plain string.
- * OpenAI compat: images are embedded in the content array as `image_url` objects
- *   using data-URLs (with the `data:image/jpeg;base64,...` prefix intact).
- *
- * Args:
- *   conv         (object) — The active conversation.
- *   systemPrompt (string) — Optional system prompt text.
- *   proto        (string) — 'ollama' or 'openai'.
- *
- * Returns: (object[]) Array of API-ready message objects.
- */
-function buildMessageHistory(conv, systemPrompt, proto) {
-  const history = [];
+  set(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (err) {
+      console.error(`Storage write error for key "${key}":`, err);
+    }
+  },
 
-  if (systemPrompt) {
-    history.push({ role: 'system', content: systemPrompt });
-  }
+  remove(key) {
+    localStorage.removeItem(key);
+  },
+};
 
-  // Exclude the last message (the empty placeholder added by runAssistant)
-  conv.messages.slice(0, -1).forEach(msg => {
-    history.push(convertMessageForProtocol(msg, proto));
-  });
+const APIService = {
+  async fetchModelNames(provider) {
+    return provider.proto === 'ollama'
+      ? this.fetchOllamaModelNames(provider)
+      : this.fetchOpenAIModelNames(provider);
+  },
 
-  return history;
-}
+  async fetchOllamaModelNames(provider) {
+    const headers  = provider.key ? { Authorization: `Bearer ${provider.key}` } : {};
+    const response = await fetch(`${provider.url}/api/tags`, { headers });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const data = await response.json();
+    return (data.models || []).map(model => model.name);
+  },
 
-/**
- * Converts a stored message record to the wire format expected by the given protocol.
- *
- * Args:
- *   message (object) — Stored message: { role, content, images? }
- *   proto   (string) — 'ollama' or 'openai'.
- *
- * Returns: (object) API-ready message object.
- */
-function convertMessageForProtocol(message, proto) {
-  const hasImages = message.images && message.images.length > 0;
-
-  if (!hasImages) {
-    // No images — plain string content works for both protocols
-    return { role: message.role, content: message.content || '' };
-  }
-
-  if (proto === 'ollama') {
-    return buildOllamaVisionMessage(message);
-  }
-
-  return buildOpenAIVisionMessage(message);
-}
-
-/**
- * Builds an Ollama-format vision message.
- * Ollama expects a plain string `content` and a separate `images` array of
- * raw base64 strings (the `data:image/...;base64,` prefix must be stripped).
- *
- * Args:
- *   message (object) — Stored message with images array.
- *
- * Returns: (object) { role, content, images }
- */
-function buildOllamaVisionMessage(message) {
-  const rawBase64Images = message.images.map(dataUrl => {
-    // Strip the data URL prefix to get the raw base64 string
-    const commaIndex = dataUrl.indexOf(',');
-    return commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
-  });
-
-  return {
-    role:    message.role,
-    content: message.content || '',
-    images:  rawBase64Images,
-  };
-}
-
-/**
- * Builds an OpenAI-format vision message.
- * OpenAI embeds images inside the `content` array as `image_url` objects.
- * Data-URLs with the full `data:image/...;base64,...` prefix are accepted directly.
- *
- * Args:
- *   message (object) — Stored message with images array.
- *
- * Returns: (object) { role, content: ContentPart[] }
- */
-function buildOpenAIVisionMessage(message) {
-  const contentParts = [];
-
-  // Images first, then text — some models attend better with this ordering
-  message.images.forEach(dataUrl => {
-    contentParts.push({
-      type:      'image_url',
-      image_url: { url: dataUrl },
+  async fetchOpenAIModelNames(provider) {
+    const hasVersionSuffix = provider.url.endsWith('/v1') || /\/v\d+$/.test(provider.url);
+    const modelsUrl = hasVersionSuffix
+      ? `${provider.url}/models`
+      : `${provider.url}/v1/models`;
+    
+    const response = await fetch(modelsUrl, {
+      headers: {
+        Authorization:  `Bearer ${provider.key || 'none'}`,
+        'Content-Type': 'application/json',
+      },
     });
-  });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const data = await response.json();
+    return (data.data || []).map(model => model.id).sort();
+  },
 
-  if (message.content) {
-    contentParts.push({ type: 'text', text: message.content });
-  }
+  buildChatCompletionsUrl(baseUrl) {
+    const hasVersionSuffix = baseUrl.endsWith('/v1') || /\/v\d+$/.test(baseUrl);
+    return hasVersionSuffix
+      ? `${baseUrl}/chat/completions`
+      : `${baseUrl}/v1/chat/completions`;
+  },
 
-  return { role: message.role, content: contentParts };
-}
+  buildOpenAIRequestBody({ model, messages, temperature, topP, maxTokens }) {
+    const body = { model, messages, stream: true, temperature };
+    if (topP < 1)  body.top_p      = topP;
+    if (maxTokens) body.max_tokens  = maxTokens;
+    return body;
+  },
 
-// ── Ollama Streaming ────────────────────────────────────────────────────────
+  async streamOpenAI(provider, model, messages, params, onChunk) {
+    const { temperature, topP, maxTokens, signal } = params;
+    const chatUrl = this.buildChatCompletionsUrl(provider.url);
+    const requestBody = this.buildOpenAIRequestBody({ model, messages, temperature, topP, maxTokens });
 
-/**
- * Streams a response from an Ollama-native endpoint, updating the UI on each chunk.
- *
- * Args:
- *   provider  (object)   — Active provider record.
- *   model     (string)   — Model name.
- *   messages  (object[]) — Message history array.
- *   params    (object)   — { temperature, topP, maxTokens, signal }
- *   conv      (object)   — Active conversation to update.
- */
-async function streamOllama(provider, model, messages, params, conv) {
-  const { temperature, topP, maxTokens, signal } = params;
+    const response = await fetch(chatUrl, {
+      method: 'POST',
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization:  `Bearer ${provider.key || 'none'}`,
+      },
+      body: JSON.stringify(requestBody),
+    });
 
-  const options = { temperature };
-  if (topP < 1)  options.top_p       = topP;
-  if (maxTokens) options.num_predict  = maxTokens;
-
-  const response = await fetch(`${provider.url}/api/chat`, {
-    method: 'POST',
-    signal,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(provider.key ? { Authorization: `Bearer ${provider.key}` } : {}),
-    },
-    body: JSON.stringify({ model, messages, stream: true, options }),
-  });
-
-  if (!response.ok) throw new Error('HTTP ' + response.status);
-
-  const reader  = response.body.getReader();
-  const decoder = new TextDecoder();
-  let accumulatedContent  = '';
-  let accumulatedThinking = '';
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const lines = decoder.decode(value).split('\n').filter(line => line.trim());
-
-      for (const line of lines) {
-        try {
-          const chunk = JSON.parse(line);
-          if (chunk.message?.content)  accumulatedContent  += chunk.message.content;
-          if (chunk.message?.thinking) accumulatedThinking += chunk.message.thinking;
-          updateStreamingMessage(conv, accumulatedContent, accumulatedThinking);
-        } catch (parseError) {
-          // Malformed JSON chunk — skip; Ollama occasionally sends partial lines
-          console.debug('Skipped unparseable Ollama chunk:', parseError.message);
-        }
-      }
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.error?.message || 'HTTP ' + response.status);
     }
-  } finally {
-    reader.cancel();
-  }
 
-  finalizeMessage(conv, accumulatedContent, accumulatedThinking);
-}
+    return this._readOpenAIStream(response, onChunk);
+  },
 
-// ── OpenAI-compatible Streaming ─────────────────────────────────────────────
+  async _readOpenAIStream(response, onChunk) {
+    const reader  = response.body.getReader();
+    const decoder = new TextDecoder();
+    let rawContent       = '';
+    let reasoningContent = '';
+    let buffer           = '';
 
-/**
- * Streams a response from an OpenAI-compatible SSE endpoint.
- * Handles `reasoning_content` (DeepSeek-R1) and `<think>` tag formats.
- *
- * Args:
- *   provider  (object)   — Active provider record.
- *   model     (string)   — Model name.
- *   messages  (object[]) — Message history array.
- *   params    (object)   — { temperature, topP, maxTokens, signal }
- *   conv      (object)   — Active conversation to update.
- */
-async function streamOpenAI(provider, model, messages, params, conv) {
-  const { temperature, topP, maxTokens, signal } = params;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-  const chatUrl    = buildChatCompletionsUrl(provider.url);
-  const requestBody = buildOpenAIRequestBody({ model, messages, temperature, topP, maxTokens });
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
 
-  const response = await fetch(chatUrl, {
-    method: 'POST',
-    signal,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization:  `Bearer ${provider.key || 'none'}`,
-    },
-    body: JSON.stringify(requestBody),
-  });
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === 'data: [DONE]') continue;
+          if (!trimmed.startsWith('data: ')) continue;
 
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => ({}));
-    throw new Error(errorBody.error?.message || 'HTTP ' + response.status);
-  }
+          try {
+            const data  = JSON.parse(trimmed.slice(6));
+            const delta = data.choices?.[0]?.delta;
+            if (!delta) continue;
 
-  const { rawContent, reasoningContent } = await readOpenAIStream(response, conv);
+            if (delta.reasoning_content) reasoningContent += delta.reasoning_content;
+            if (delta.content)           rawContent       += delta.content;
 
-  let finalContent, finalThinking;
-
-  if (reasoningContent) {
-    finalThinking = reasoningContent;
-    finalContent  = rawContent;
-  } else {
-    ({ thinking: finalThinking, content: finalContent } = extractThinkTag(rawContent.trimStart()));
-  }
-
-  finalizeMessage(conv, finalContent, finalThinking);
-}
-
-/**
- * Reads the SSE stream from an OpenAI-compatible response and accumulates content.
- *
- * Args:
- *   response (Response) — Fetch API response with SSE body.
- *   conv     (object)   — Active conversation for live UI updates.
- *
- * Returns: (Promise<{ rawContent: string, reasoningContent: string }>)
- */
-async function readOpenAIStream(response, conv) {
-  const reader  = response.body.getReader();
-  const decoder = new TextDecoder();
-
-  let rawContent       = '';
-  let reasoningContent = '';
-  let buffer           = '';
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop(); // Keep potentially incomplete last line
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed === 'data: [DONE]') continue;
-        if (!trimmed.startsWith('data: '))         continue;
-
-        try {
-          const data  = JSON.parse(trimmed.slice(6));
-          const delta = data.choices?.[0]?.delta;
-          if (!delta) continue;
-
-          if (delta.reasoning_content) reasoningContent += delta.reasoning_content;
-          if (delta.content)           rawContent       += delta.content;
-
-          if (reasoningContent) {
-            updateStreamingMessage(conv, rawContent, reasoningContent);
-          } else {
-            const { thinking, content } = extractThinkTag(rawContent.trimStart());
-            updateStreamingMessage(conv, content, thinking);
+            onChunk({ content: rawContent, thinking: reasoningContent });
+          } catch (parseError) {
+            console.debug('Skipped unparseable SSE line:', parseError.message);
           }
-        } catch (parseError) {
-          console.debug('Skipped unparseable SSE line:', parseError.message);
         }
       }
+    } finally {
+      reader.cancel();
     }
-  } finally {
-    reader.cancel();
-  }
 
-  return { rawContent, reasoningContent };
-}
+    return { rawContent, reasoningContent };
+  },
 
-/**
- * Builds the chat completions URL, detecting whether a version segment is already present.
- *
- * Args:
- *   baseUrl (string) — Provider base URL (no trailing slash).
- *
- * Returns: (string) Full URL to the chat completions endpoint.
- */
-function buildChatCompletionsUrl(baseUrl) {
-  const hasVersionSuffix = baseUrl.endsWith('/v1') || /\/v\d+$/.test(baseUrl);
-  return hasVersionSuffix
-    ? `${baseUrl}/chat/completions`
-    : `${baseUrl}/v1/chat/completions`;
-}
+  async streamOllama(provider, model, messages, params, onChunk) {
+    const { temperature, topP, maxTokens, signal } = params;
+    const options = { temperature };
+    if (topP < 1)  options.top_p       = topP;
+    if (maxTokens) options.num_predict  = maxTokens;
 
-/**
- * Builds the request body for an OpenAI-compatible chat completions call.
- *
- * Args:
- *   options (object) — { model, messages, temperature, topP, maxTokens }
- *
- * Returns: (object) Request body for JSON serialization.
- */
-function buildOpenAIRequestBody({ model, messages, temperature, topP, maxTokens }) {
-  const body = { model, messages, stream: true, temperature };
-  if (topP < 1)  body.top_p      = topP;
-  if (maxTokens) body.max_tokens  = maxTokens;
-  return body;
-}
+    const response = await fetch(`${provider.url}/api/chat`, {
+      method: 'POST',
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(provider.key ? { Authorization: `Bearer ${provider.key}` } : {}),
+      },
+      body: JSON.stringify({ model, messages, stream: true, options }),
+    });
 
-// ── Think-tag Parser ────────────────────────────────────────────────────────
+    if (!response.ok) throw new Error('HTTP ' + response.status);
 
-/**
- * Extracts thinking content from model output that uses <think>...</think> tags.
- * Handles complete tags, incomplete tags (still streaming), and bare </think>.
- *
- * Args:
- *   raw (string) — Raw model output.
- *
- * Returns: (object) { thinking: string, content: string }
- */
-function extractThinkTag(raw) {
-  const fullMatch = raw.match(/^<think>([\s\S]*?)<\/think>\s*/);
-  if (fullMatch) {
-    return { thinking: fullMatch[1].trim(), content: raw.slice(fullMatch[0].length) };
-  }
+    const reader  = response.body.getReader();
+    const decoder = new TextDecoder();
+    let accumulatedContent  = '';
+    let accumulatedThinking = '';
 
-  if (raw.startsWith('<think>') && !raw.includes('</think>')) {
-    return { thinking: raw.slice(7).trim(), content: '' };
-  }
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-  const bareCloseIndex = raw.indexOf('</think>');
-  if (bareCloseIndex !== -1) {
+        const lines = decoder.decode(value).split('\n').filter(line => line.trim());
+
+        for (const line of lines) {
+          try {
+            const chunk = JSON.parse(line);
+            if (chunk.message?.content)  accumulatedContent  += chunk.message.content;
+            if (chunk.message?.thinking) accumulatedThinking += chunk.message.thinking;
+            onChunk({ content: accumulatedContent, thinking: accumulatedThinking });
+          } catch (parseError) {
+            console.debug('Skipped unparseable Ollama chunk:', parseError.message);
+          }
+        }
+      }
+    } finally {
+      reader.cancel();
+    }
+  },
+};
+
+const ImageService = {
+  async compressFile(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+
+        let { width, height } = img;
+        const maxEdge = Config.IMAGE_COMPRESS_MAX_EDGE_PX;
+
+        if (width > maxEdge || height > maxEdge) {
+          if (width >= height) {
+            height = Math.round((height / width) * maxEdge);
+            width  = maxEdge;
+          } else {
+            width  = Math.round((width / height) * maxEdge);
+            height = maxEdge;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width  = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('Canvas 2D context unavailable')); return; }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL(Config.IMAGE_COMPRESS_OUTPUT_FORMAT, Config.IMAGE_COMPRESS_QUALITY));
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error(`Failed to load image: ${file.name}`));
+      };
+
+      img.src = objectUrl;
+    });
+  },
+};
+
+// ════════════════════════════════════════════════════════════════════════════════
+// LAYER 4: STATE STORE (Centralized reactive state management - Observer Pattern)
+// ════════════════════════════════════════════════════════════════════════════════
+
+const Store = (function() {
+  const state = {
+    providers:       StorageService.get(Config.STORAGE_KEYS.providers) || [],
+    activeProviderId: StorageService.get(Config.STORAGE_KEYS.activeProvider) || null,
+    conversations:   StorageService.get(Config.STORAGE_KEYS.conversations) || [],
+    activeConvId:    null,
+    settings:        StorageService.get(Config.STORAGE_KEYS.settings) || {},
+    isStreaming:     false,
+    shouldAutoScroll: true,
+    pendingImages:   [],
+    editingProviderId: null,
+    selectedProto:   'ollama',
+    abortController: null,
+  };
+
+  const subscribers = [];
+
+  return {
+    getState() {
+      return state;
+    },
+
+    subscribe(callback) {
+      subscribers.push(callback);
+      return () => {
+        subscribers = subscribers.filter(cb => cb !== callback);
+      };
+    },
+
+    commit(mutations) {
+      Object.assign(state, mutations);
+      subscribers.forEach(cb => cb(state));
+      this._persistState();
+    },
+
+    _persistState() {
+      StorageService.set(Config.STORAGE_KEYS.providers, state.providers);
+      StorageService.set(Config.STORAGE_KEYS.activeProvider, state.activeProviderId);
+      StorageService.set(Config.STORAGE_KEYS.conversations, state.conversations);
+      StorageService.set(Config.STORAGE_KEYS.settings, state.settings);
+    },
+
+    // Getters
+    getActiveProvider() {
+      return state.providers.find(p => p.id === state.activeProviderId) || null;
+    },
+
+    getActiveConversation() {
+      return state.conversations.find(c => c.id === state.activeConvId) || null;
+    },
+
+    isVisionEnabled() {
+      return Boolean(this.getActiveProvider()?.supportsVision);
+    },
+  };
+})();
+
+// ════════════════════════════════════════════════════════════════════════════════
+// LAYER 5: ENTITY FACTORIES & BUILDERS
+// ════════════════════════════════════════════════════════════════════════════════
+
+const Factories = {
+  createProvider(name, url, key, proto, supportsVision) {
     return {
-      thinking: raw.slice(0, bareCloseIndex).trim(),
-      content:  raw.slice(bareCloseIndex + '</think>'.length).trimStart(),
+      id: Utils.generateId(),
+      name,
+      url: url.replace(/\/$/, ''),
+      key,
+      proto,
+      supportsVision,
+      lastModel: null,
     };
-  }
+  },
 
-  return { thinking: '', content: raw };
-}
+  createConversation(title = 'NEW SESSION') {
+    return {
+      id: Utils.generateId(),
+      title,
+      messages: [],
+      createdAt: new Date().toISOString(),
+    };
+  },
 
-// ── Live Message Updates ────────────────────────────────────────────────────
+  createMessage(role, content, images = null, thinking = '') {
+    return {
+      role,
+      content,
+      images: images && images.length ? images : undefined,
+      thinking,
+      time: new Date().toISOString(),
+    };
+  },
 
-/**
- * Updates the last message bubble in the DOM with new streaming content,
- * without re-rendering the entire message list.
- *
- * Args:
- *   conv     (object) — Active conversation (last message updated in place).
- *   content  (string) — Accumulated response text so far.
- *   thinking (string) — Accumulated chain-of-thought text so far (may be empty).
- */
-function updateStreamingMessage(conv, content, thinking) {
-  const lastMessage    = conv.messages[conv.messages.length - 1];
-  lastMessage.content  = content;
-  lastMessage.thinking = thinking;
+  buildMessageHistory(conv, systemPrompt, proto) {
+    const history = [];
+    if (systemPrompt) {
+      history.push({ role: 'system', content: systemPrompt });
+    }
+    
+    conv.messages.slice(0, -1).forEach(msg => {
+      history.push(this.convertMessageForProtocol(msg, proto));
+    });
+    return history;
+  },
 
-  const chatArea       = document.getElementById('chatArea');
-  const messageBubbles = chatArea.querySelectorAll('.message');
-  const lastBubble     = messageBubbles[messageBubbles.length - 1];
-  if (!lastBubble) return;
+  convertMessageForProtocol(message, proto) {
+    const hasImages = message.images && message.images.length > 0;
+    if (!hasImages) {
+      return { role: message.role, content: message.content || '' };
+    }
+    return proto === 'ollama'
+      ? this._buildOllamaVisionMessage(message)
+      : this._buildOpenAIVisionMessage(message);
+  },
 
-  const bodyEl = lastBubble.querySelector('.message-body');
-  if (bodyEl) {
-    bodyEl.innerHTML = formatContent(content) + '<span class="cursor"></span>';
-  }
+  _buildOllamaVisionMessage(message) {
+    const rawBase64Images = message.images.map(dataUrl => {
+      const commaIndex = dataUrl.indexOf(',');
+      return commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
+    });
+    return {
+      role:    message.role,
+      content: message.content || '',
+      images:  rawBase64Images,
+    };
+  },
 
-  if (thinking) {
-    let thinkEl = lastBubble.querySelector('.thinking-block');
+  _buildOpenAIVisionMessage(message) {
+    const contentParts = [];
+    message.images.forEach(dataUrl => {
+      contentParts.push({
+        type:      'image_url',
+        image_url: { url: dataUrl },
+      });
+    });
+    if (message.content) {
+      contentParts.push({ type: 'text', text: message.content });
+    }
+    return { role: message.role, content: contentParts };
+  },
+};
 
-    if (thinkEl) {
-      thinkEl.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div>${escapeHtml(thinking)}`;
+// ────────────────────────────────────────────────────────────────────────────────
+// LAYER 6: UI COMPONENTS & DOM RENDERING (Facade Pattern for DOM interactions)
+// ────────────────────────────────────────────────────────────────────────────────
+
+const DOM = {
+  query(selector) {
+    return document.querySelector(selector);
+  },
+
+  queryAll(selector) {
+    return document.querySelectorAll(selector);
+  },
+
+  setText(selector, text) {
+    const el = this.query(selector);
+    if (el) el.textContent = text;
+  },
+
+  setClass(selector, className, add = true) {
+    const el = this.query(selector);
+    if (el) el.classList.toggle(className, add);
+  },
+
+  setStyle(selector, styles) {
+    const el = this.query(selector);
+    if (el) Object.assign(el.style, styles);
+  },
+
+  setAttr(selector, attr, value) {
+    const el = this.query(selector);
+    if (el) el.setAttribute(attr, value);
+  },
+
+  on(selector, event, handler) {
+    const el = this.query(selector);
+    if (el) el.addEventListener(event, handler);
+  },
+
+  onAll(selector, event, handler) {
+    this.queryAll(selector).forEach(el => el.addEventListener(event, handler));
+  },
+};
+
+// ────────────────────────────────────────────────────────────────────────────────
+// LAYER 7: UI RENDERING LAYER (Presentation logic separated from business logic)
+// ────────────────────────────────────────────────────────────────────────────────
+
+const UI = {
+  showConfirm(message) {
+    return new Promise(resolve => {
+      DOM.setText('#confirmMsg', message);
+      const overlay = DOM.query('#confirmModal');
+      overlay.classList.add('open');
+
+      const cleanup = () => {
+        overlay.classList.remove('open');
+        resolve(false);
+      };
+
+      const onConfirm = () => { cleanup(); resolve(true); overlay.removeEventListener('click', onOverlayClick); };
+      const onCancel  = () => { cleanup(); overlay.removeEventListener('click', onOverlayClick); };
+      const onOverlayClick = (e) => { if (e.target === overlay) onCancel(); };
+
+      const confirmYes = DOM.query('#confirmYes');
+      const confirmNo  = DOM.query('#confirmNo');
+      const confirmCancel = DOM.query('#confirmCancel');
+
+      confirmYes.addEventListener('click', onConfirm);
+      confirmNo.addEventListener('click', onCancel);
+      confirmCancel.addEventListener('click', onCancel);
+      overlay.addEventListener('click', onOverlayClick);
+    });
+  },
+
+  showToast(message, isError = false) {
+    const existing = DOM.query('.toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.style.borderColor = isError ? 'var(--danger)' : 'var(--accent2)';
+    toast.style.color       = isError ? 'var(--danger)' : 'var(--accent2)';
+    toast.textContent = message;
+
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), Config.TOAST_DISPLAY_MS);
+  },
+
+  renderProviderList() {
+    const state = Store.getState();
+    const container = DOM.query('#providerList');
+
+    if (!state.providers.length) {
+      container.innerHTML = '<div style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--text-dim);text-align:center;padding:8px;letter-spacing:1px">NO PROVIDERS</div>';
+      return;
+    }
+
+    container.innerHTML = state.providers.map(provider => {
+      const dotColor = Config.PROTO_COLORS[provider.proto];
+      const isActive = provider.id === state.activeProviderId;
+      const hostOnly = Utils.escapeHtml(provider.url.replace(/^https?:\/\//, ''));
+      const visionBadge = provider.supportsVision
+        ? '<span style="font-size:9px;color:var(--accent3);margin-left:4px">👁</span>'
+        : '';
+
+      return `
+        <div class="provider-item ${isActive ? 'active' : ''}"
+             data-provider-id="${provider.id}">
+          <div class="provider-dot" style="background:${dotColor};box-shadow:0 0 6px ${dotColor}"></div>
+          <div class="provider-info">
+            <div class="provider-name">${Utils.escapeHtml(provider.name)}${visionBadge}</div>
+            <div class="provider-url">${hostOnly}</div>
+          </div>
+          <div class="provider-actions">
+            <button class="icon-btn" data-action="edit" data-provider-id="${provider.id}" title="Edit">✎</button>
+            <button class="icon-btn del" data-action="delete" data-provider-id="${provider.id}" title="Delete">✕</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  },
+
+  renderConversationList() {
+    const state = Store.getState();
+    const list = DOM.query('#conversationList');
+
+    if (!state.conversations.length) {
+      list.innerHTML = '<div style="padding:12px;font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--text-dim);letter-spacing:2px;text-align:center">NO SESSIONS</div>';
+      return;
+    }
+
+    list.innerHTML = state.conversations.map(conv => `
+      <div class="conv-item ${conv.id === state.activeConvId ? 'active' : ''}"
+           data-conv-id="${conv.id}">
+        <button class="conv-delete" data-action="delete-conv" data-conv-id="${conv.id}">×</button>
+        <div class="conv-title">${Utils.escapeHtml(conv.title)}</div>
+        <div class="conv-meta">${conv.messages.length} MSG · ${Utils.formatDate(conv.createdAt)}</div>
+      </div>
+    `).join('');
+  },
+
+  renderMessages() {
+    const state = Store.getState();
+    const area = DOM.query('#chatArea');
+    const conv = Store.getActiveConversation();
+
+    if (!conv || !conv.messages.length) {
+      area.innerHTML = this._buildEmptyStateHtml();
+      return;
+    }
+
+    const lastIndex = conv.messages.length - 1;
+    area.innerHTML = conv.messages
+      .map((msg, index) => this._buildMessageHtml(msg, index, index === lastIndex))
+      .join('');
+
+    state.shouldAutoScroll = true;
+    area.scrollTop = area.scrollHeight;
+  },
+
+  _buildEmptyStateHtml() {
+    return `
+      <div class="empty-state">
+        <div class="empty-geo">
+          <svg viewBox="0 0 120 120" fill="none">
+            <polygon points="60,5 115,32.5 115,87.5 60,115 5,87.5 5,32.5"  stroke="#dfdad9" stroke-width="1"/>
+            <polygon points="60,20 100,40 100,80 60,100 20,80 20,40"        stroke="#cecacd" stroke-width="1"/>
+            <polygon points="60,35 85,47.5 85,72.5 60,85 35,72.5 35,47.5"  stroke="#286983" stroke-width="1" opacity="0.5"/>
+            <circle cx="60" cy="60" r="8" stroke="#286983" stroke-width="1" opacity="0.8"/>
+            <circle cx="60" cy="60" r="3" fill="#286983" opacity="0.6"/>
+          </svg>
+        </div>
+        <div class="empty-text">AWAITING INPUT</div>
+      </div>`;
+  },
+
+  _buildMessageHtml(message, messageIndex, isLastMessage) {
+    const isUserMessage = message.role === 'user';
+    const imagesHtml = this._buildMessageImagesHtml(message.images);
+    const thinkingHtml = message.thinking
+      ? `<div class="thinking-block">
+         <div class="thinking-label">// CHAIN OF THOUGHT</div>
+         ${Utils.escapeHtml(message.thinking)}
+       </div>`
+      : '';
+
+    const textContent = Utils.extractTextContent(message.content);
+    const copyButton = `<button class="msg-btn" data-action="copy" data-msg-index="${messageIndex}">⎘ COPY</button>`;
+    const regenButton = (isLastMessage && !isUserMessage && textContent)
+      ? `<button class="msg-btn regen" data-action="regen">↺ REGEN</button>`
+      : '';
+
+    const avatarHtml = isUserMessage
+      ? `<svg viewBox="0 0 32 32" fill="none">
+           <polygon points="16,2 30,9 30,23 16,30 2,23 2,9" stroke="#ea9d34" stroke-width="1" fill="rgba(234,157,52,0.08)"/>
+           <polygon points="16,8 24,12 24,20 16,24 8,20 8,12" stroke="#ea9d34" stroke-width="0.5" opacity="0.5"/>
+           <circle cx="16" cy="16" r="3" fill="#ea9d34" opacity="0.8"/>
+         </svg>`
+      : `<svg viewBox="0 0 32 32" fill="none">
+           <rect x="2" y="2" width="28" height="28" stroke="#286983" stroke-width="1" fill="rgba(40,105,131,0.07)"/>
+           <rect x="7" y="7" width="18" height="18" stroke="#286983" stroke-width="0.5" opacity="0.5"/>
+           <circle cx="16" cy="16" r="4" stroke="#286983" stroke-width="1"/>
+           <circle cx="16" cy="16" r="1.5" fill="#286983" opacity="0.8"/>
+         </svg>`;
+
+    return `
+      <div class="message ${message.role}">
+        <div class="message-avatar">${avatarHtml}</div>
+        <div class="message-content">
+          <div class="message-header">
+            <span class="message-role role-${message.role}">${isUserMessage ? 'USER' : 'ASSISTANT'}</span>
+            <span class="message-time">${Utils.formatTime(message.time)}</span>
+          </div>
+          ${thinkingHtml}
+          <div class="message-body">
+            ${imagesHtml}
+            ${Utils.formatContent(textContent)}
+          </div>
+          <div class="message-actions">${copyButton}${regenButton}</div>
+        </div>
+      </div>`;
+  },
+
+  _buildMessageImagesHtml(images) {
+    if (!images || !images.length) return '';
+    const thumbsHtml = images.map((dataUrl, index) => `
+      <img class="message-image-thumb"
+           src="${dataUrl}"
+           alt="Attached image ${index + 1}"
+           data-action="lightbox" data-image-url="${Utils.escapeHtml(dataUrl)}"
+           title="Click to enlarge">
+    `).join('');
+    return `<div class="message-images">${thumbsHtml}</div>`;
+  },
+
+  renderPendingImagesBar() {
+    const state = Store.getState();
+    const bar       = DOM.query('#pendingImagesBar');
+    const attachBtn = DOM.query('#attachBtn');
+
+    if (!state.pendingImages.length) {
+      bar.classList.remove('has-images');
+      bar.innerHTML = '<span class="pending-images-label">ATTACHED:</span>';
+      attachBtn.classList.remove('has-images');
+      return;
+    }
+
+    bar.classList.add('has-images');
+    attachBtn.classList.add('has-images');
+
+    const thumbnailsHtml = state.pendingImages.map((dataUrl, index) => `
+      <div class="pending-image-item">
+        <img class="pending-image-thumb" src="${dataUrl}" alt="Pending image ${index + 1}">
+        <button class="pending-image-remove" data-action="remove-image" data-image-index="${index}" title="Remove">×</button>
+      </div>
+    `).join('');
+
+    bar.innerHTML = `<span class="pending-images-label">ATTACHED:</span>${thumbnailsHtml}`;
+  },
+
+  updateAttachButtonVisibility() {
+    const show = Store.isVisionEnabled();
+    DOM.setStyle('#attachBtn', { display: show ? 'flex' : 'none' });
+  },
+
+  setConnectionStatus(isOnline, statusMsg) {
+    DOM.setClass('#statusDot', 'offline', !isOnline);
+    DOM.setText('#statusText', statusMsg);
+  },
+
+  updateProviderBadge() {
+    const provider = Store.getActiveProvider();
+    const badge    = DOM.query('#activeBadge');
+
+    if (!provider) {
+      badge.style.display = 'none';
+      return;
+    }
+
+    badge.style.display = 'inline-flex';
+    DOM.setText('#badgeName', provider.name);
+    DOM.setText('#badgeProto', provider.proto.toUpperCase());
+
+    const visionTag = DOM.query('#badgeVision');
+    visionTag.style.display = provider.supportsVision ? 'inline' : 'none';
+  },
+
+  setStreamingState(isStreaming) {
+    DOM.query('#sendBtn').disabled = isStreaming;
+    DOM.setClass('#stopBtn', 'visible', isStreaming);
+  },
+
+  resetTokenDisplay() {
+    setTimeout(() => {
+      if (!Store.getState().isStreaming) {
+        DOM.setText('#tokenCount', 'TOKENS: —');
+      }
+    }, Config.TOKEN_DISPLAY_RESET_MS);
+  },
+
+  setModelDropdown(modelNames) {
+    const select = DOM.query('#modelSelect');
+    select.innerHTML = modelNames.length
+      ? modelNames.map(name => `<option value="${Utils.escapeHtml(name)}">${Utils.escapeHtml(name)}</option>`).join('')
+      : '<option value="">No models found</option>';
+  },
+};
+
+// ════════════════════════════════════════════════════════════════════════════════
+// LAYER 8: BUSINESS LOGIC & OPERATIONS (Controller/UseCase layer)
+// ════════════════════════════════════════════════════════════════════════════════
+
+const Actions = {
+  // Provider Actions
+  async saveProvider() {
+    const name           = DOM.query('#providerName').value.trim();
+    const url            = DOM.query('#providerUrl').value.trim().replace(/\/$/, '');
+    const key            = DOM.query('#providerKey').value.trim();
+    const supportsVision = DOM.query('#providerVision').checked;
+
+    if (!name) { UI.showToast('✕ Enter a name', true); return; }
+    if (!url)  { UI.showToast('✕ Enter a URL',  true); return; }
+
+    const state = Store.getState();
+    const proto = state.selectedProto;
+
+    if (state.editingProviderId) {
+      const idx = state.providers.findIndex(p => p.id === state.editingProviderId);
+      if (idx >= 0) {
+        state.providers[idx] = { ...state.providers[idx], name, url, key, proto, supportsVision };
+      }
     } else {
-      thinkEl           = document.createElement('div');
-      thinkEl.className = 'thinking-block';
-      thinkEl.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div>${escapeHtml(thinking)}`;
-      bodyEl.parentNode.insertBefore(thinkEl, bodyEl);
+      state.providers.push(Factories.createProvider(name, url, key, proto, supportsVision));
     }
-  }
 
-  if (shouldAutoScroll) chatArea.scrollTop = chatArea.scrollHeight;
+    Store.commit({ providers: state.providers });
+    this.closeModal();
+    UI.renderProviderList();
+    UI.updateAttachButtonVisibility();
 
-  const totalChars = content.length + (thinking?.length || 0);
-  document.getElementById('tokenCount').textContent =
-    `TOKENS: ~${Math.ceil(totalChars / APPROX_CHARS_PER_TOKEN)}`;
-}
-
-/**
- * Writes the final content and thinking to the conversation, saves, and re-renders.
- *
- * Args:
- *   conv     (object) — Active conversation.
- *   content  (string) — Final response content.
- *   thinking (string) — Final chain-of-thought content (may be empty).
- */
-function finalizeMessage(conv, content, thinking) {
-  const lastMessage    = conv.messages[conv.messages.length - 1];
-  lastMessage.content  = content;
-  lastMessage.thinking = thinking;
-
-  saveConversations();
-  renderMessages();
-  renderConversationList();
-}
-
-// ── Stream Error Handling ───────────────────────────────────────────────────
-
-/**
- * Handles errors thrown during streaming; differentiates user-stops from genuine errors.
- *
- * Args:
- *   conv        (object) — Active conversation.
- *   streamError (Error)  — The caught error.
- */
-function handleStreamError(conv, streamError) {
-  const lastMessage = conv.messages[conv.messages.length - 1];
-
-  if (streamError.name === 'AbortError') {
-    if (!lastMessage.content && !lastMessage.thinking) {
-      lastMessage.content = '⊘ STOPPED';
+    if (state.providers.length === 1) {
+      this.activateProvider(state.providers[0].id);
     }
-    showToast('⊘ STOPPED');
-  } else {
-    lastMessage.content = '✕ ERROR: ' + streamError.message;
-    showToast('✕ ' + streamError.message, true);
-    console.error('Streaming error:', streamError);
-  }
+  },
 
-  saveConversations();
-  renderMessages();
-}
+  async deleteProvider(providerId) {
+    const state = Store.getState();
+    const provider = state.providers.find(p => p.id === providerId);
+    const confirmed = await UI.showConfirm(`DELETE PROVIDER\n"${provider?.name || providerId}"?`);
+    if (!confirmed) return;
 
-// ── Input Handling ──────────────────────────────────────────────────────────
+    state.providers = state.providers.filter(p => p.id !== providerId);
+    if (state.activeProviderId === providerId) {
+      state.activeProviderId = state.providers[0]?.id || null;
+    }
 
-/**
- * Handles keydown events in the message textarea.
- * Enter sends; Shift+Enter inserts a newline.
- *
- * Args:
- *   event (KeyboardEvent) — The keydown event.
- */
-function handleInputKeydown(event) {
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault();
-    sendMessage();
-  }
-}
+    Store.commit(state);
+    UI.renderProviderList();
 
-/**
- * Auto-grows the textarea as the user types, capped at MAX_INPUT_HEIGHT_PX.
- *
- * Args:
- *   textarea (HTMLTextAreaElement) — The textarea to resize.
- */
-function autoResizeTextarea(textarea) {
-  textarea.style.height = 'auto';
-  textarea.style.height = Math.min(textarea.scrollHeight, MAX_INPUT_HEIGHT_PX) + 'px';
-}
+    if (state.activeProviderId) {
+      this.activateProvider(state.activeProviderId);
+    } else {
+      UI.setConnectionStatus(false, 'NO PROVIDER');
+      DOM.query('#activeBadge').style.display = 'none';
+      UI.setModelDropdown([]);
+      UI.updateAttachButtonVisibility();
+    }
+  },
 
-// ── Content Formatting ──────────────────────────────────────────────────────
+  activateProvider(providerId) {
+    const state = Store.getState();
+    state.activeProviderId = providerId;
+    state.pendingImages = [];
+    Store.commit(state);
+    UI.renderProviderList();
+    this.loadModels();
+    UI.updateAttachButtonVisibility();
+  },
 
-/**
- * Converts plain model output to safe HTML with basic markdown-ish formatting.
- *
- * Args:
- *   text (string) — Raw content string.
- *
- * Returns: (string) HTML-safe string for innerHTML.
- */
-function formatContent(text) {
-  if (!text) return '';
+  async loadModels() {
+    const provider = Store.getActiveProvider();
+    if (!provider) return;
 
-  return escapeHtml(text)
-    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-    .replace(/`([^`]+)`/g,        '<code>$1</code>')
-    .replace(/\*\*(.*?)\*\*/g,    '<strong>$1</strong>')
-    .replace(/\n/g,               '<br>');
-}
+    UI.setModelDropdown([]);
+    DOM.query('#activeBadge').style.display = 'none';
+    UI.setConnectionStatus(false, 'CONNECTING...');
 
-/**
- * Escapes a string for safe insertion into HTML, preventing XSS.
- *
- * Args:
- *   str (string) — The raw string to escape.
- *
- * Returns: (string) HTML-safe version.
- */
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g,  '&amp;')
-    .replace(/</g,  '&lt;')
-    .replace(/>/g,  '&gt;')
-    .replace(/"/g,  '&quot;');
-}
+    try {
+      const modelNames = await APIService.fetchModelNames(provider);
+      UI.setModelDropdown(modelNames);
+      UI.setConnectionStatus(true, `${modelNames.length} MODELS`);
+      UI.updateProviderBadge();
+      UI.showToast(`◈ ${provider.name}: ${modelNames.length} models`);
+    } catch (err) {
+      UI.setConnectionStatus(false, 'CONNECT FAILED');
+      UI.showToast(`✕ ${err.message}`, true);
+      console.error(`Failed to load models for "${provider.name}":`, err);
+    }
+  },
 
-// ── Date / Time Formatting ──────────────────────────────────────────────────
+  // Conversation Actions
+  newConversation() {
+    const state = Store.getState();
+    const newConv = Factories.createConversation();
+    state.conversations.unshift(newConv);
+    state.activeConvId = newConv.id;
+    Store.commit(state);
+    UI.renderConversationList();
+    UI.renderMessages();
+  },
 
-/**
- * Formats an ISO date string as MM/DD for conversation list items.
- *
- * Args:
- *   isoDate (string) — ISO 8601 date string.
- *
- * Returns: (string) e.g. "03/23"
- */
-function formatDate(isoDate) {
-  return new Date(isoDate).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
-}
+  selectConversation(conversationId) {
+    const state = Store.getState();
+    state.activeConvId = conversationId;
+    Store.commit(state);
+    UI.renderConversationList();
+    UI.renderMessages();
+  },
 
-/**
- * Formats an ISO date string as HH:MM for message headers.
- *
- * Args:
- *   isoDate (string) — ISO 8601 date string.
- *
- * Returns: (string) e.g. "14:05"
- */
-function formatTime(isoDate) {
-  return new Date(isoDate).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-}
+  async deleteConversation(conversationId) {
+    const state = Store.getState();
+    const conv = state.conversations.find(c => c.id === conversationId);
+    const confirmed = await UI.showConfirm(`DELETE SESSION\n"${conv?.title || 'this session'}"?`);
+    if (!confirmed) return;
 
-// ── Toast Notification ──────────────────────────────────────────────────────
+    state.conversations = state.conversations.filter(c => c.id !== conversationId);
+    if (state.activeConvId === conversationId) {
+      state.activeConvId = state.conversations[0]?.id || null;
+    }
 
-let activeToastTimer;
+    Store.commit(state);
+    UI.renderConversationList();
+    UI.renderMessages();
+  },
 
-/**
- * Briefly shows a toast notification at the bottom-right of the screen.
- *
- * Args:
- *   message      (string)  — Text to display.
- *   isErrorToast (boolean) — If true, colors the toast red.
- */
-function showToast(message, isErrorToast = false) {
-  const existingToast = document.querySelector('.toast');
-  if (existingToast) existingToast.remove();
-  clearTimeout(activeToastTimer);
+  async clearAllConversations() {
+    const confirmed = await UI.showConfirm('CLEAR ALL SESSIONS?\nThis cannot be undone.');
+    if (!confirmed) return;
 
-  const toastEl = document.createElement('div');
-  toastEl.className = 'toast';
-  toastEl.style.borderColor = isErrorToast ? 'var(--danger)' : 'var(--accent2)';
-  toastEl.style.color       = isErrorToast ? 'var(--danger)' : 'var(--accent2)';
-  toastEl.textContent = message;
+    Store.commit({ conversations: [], activeConvId: null });
+    UI.renderConversationList();
+    UI.renderMessages();
+  },
 
-  document.body.appendChild(toastEl);
-  activeToastTimer = setTimeout(() => toastEl.remove(), TOAST_DISPLAY_MS);
-}
+  // Image Actions
+  async handleImageFileSelection(files) {
+    const fileArray = Array.from(files);
+    for (const file of fileArray) {
+      await this.addImageToPending(file);
+    }
+  },
 
-// ── Auto-Scroll Behavior ────────────────────────────────────────────────────
+  async handlePaste(items) {
+    if (!Store.isVisionEnabled()) return;
 
-/**
- * Wires up scroll listeners so auto-scroll disengages on upward scroll
- * and re-engages when the user returns near the bottom.
- */
-function initAutoScrollBehavior() {
-  const chatArea = document.getElementById('chatArea');
-  let touchStartY = 0;
+    const imageItems = items.filter(item => item.type.startsWith('image/'));
+    if (!imageItems.length) return;
 
-  chatArea.addEventListener('wheel', event => {
-    if (event.deltaY < 0) shouldAutoScroll = false;
-  }, { passive: true });
+    for (const item of imageItems) {
+      const state = Store.getState();
+      if (state.pendingImages.length >= Config.MAX_PENDING_IMAGES) break;
+      const file = item.getAsFile();
+      if (file) await this.addImageToPending(file);
+    }
+  },
 
-  chatArea.addEventListener('touchstart', event => {
-    touchStartY = event.touches[0].clientY;
-  }, { passive: true });
+  async addImageToPending(file) {
+    try {
+      const dataUrl = await ImageService.compressFile(file);
+      const state = Store.getState();
+      state.pendingImages.push(dataUrl);
+      Store.commit(state);
+      UI.renderPendingImagesBar();
+      UI.showToast(`🖼 Image attached (${state.pendingImages.length}/${Config.MAX_PENDING_IMAGES})`);
+    } catch (err) {
+      console.error('Failed to process image:', err);
+      UI.showToast('✕ Failed to process image', true);
+    }
+  },
 
-  chatArea.addEventListener('touchmove', event => {
-    if (event.touches[0].clientY > touchStartY) shouldAutoScroll = false;
+  removePendingImage(imageIndex) {
+    const state = Store.getState();
+    state.pendingImages.splice(imageIndex, 1);
+    Store.commit(state);
+    UI.renderPendingImagesBar();
+  },
+
+  // Message Actions
+  async sendMessage() {
+    const state = Store.getState();
+    if (state.isStreaming) return;
+
+    const inputEl  = DOM.query('#messageInput');
+    const userText = inputEl.value.trim();
+
+    if (!userText && !state.pendingImages.length) return;
+
+    const selectedModel = DOM.query('#modelSelect').value;
+    if (!selectedModel) { UI.showToast('✕ Select a model first', true); return; }
+
+    const provider = Store.getActiveProvider();
+    if (!provider)  { UI.showToast('✕ No active provider', true); return; }
+
+    if (!state.activeConvId) this.newConversation();
+
+    const conv = Store.getActiveConversation();
+    const attachedImages = [...state.pendingImages];
+    state.pendingImages = [];
+
+    conv.messages.push(Factories.createMessage('user', userText, attachedImages));
+
+    if (conv.title === 'NEW SESSION') {
+      const titleSource = userText || (attachedImages.length ? '[image]' : '');
+      conv.title = titleSource.slice(0, 40) + (titleSource.length > 40 ? '…' : '');
+    }
+
+    Store.commit(state);
+    inputEl.value = '';
+    inputEl.style.height = Config.MIN_INPUT_HEIGHT_PX + 'px';
+    UI.renderConversationList();
+    UI.renderMessages();
+    UI.renderPendingImagesBar();
+
+    await this.runAssistant(conv);
+  },
+
+  async runAssistant(conv) {
+    const state = Store.getState();
+    const provider = Store.getActiveProvider();
+    const selectedModel = DOM.query('#modelSelect').value;
+    const temperature  = parseFloat(DOM.query('#tempSlider').value);
+    const topP         = parseFloat(DOM.query('#topPSlider').value);
+    const rawMaxTokens = DOM.query('#maxTokens').value;
+    const maxTokens    = rawMaxTokens ? parseInt(rawMaxTokens) : null;
+    const systemPrompt = DOM.query('#systemPrompt').value.trim();
+
+    conv.messages.push(Factories.createMessage('assistant', '', null, ''));
+    UI.renderMessages();
+
+    state.abortController = new AbortController();
+    state.isStreaming = true;
+    UI.setStreamingState(true);
+    Store.commit(state);
+
+    const messageHistory = Factories.buildMessageHistory(conv, systemPrompt, provider.proto);
+    let finalContent = '', finalThinking = '';
+
+    try {
+      const params = { temperature, topP, maxTokens, signal: state.abortController.signal };
+      const onChunk = (data) => {
+        finalContent = data.content;
+        finalThinking = data.thinking;
+        this._updateStreamingMessage(conv, data.content, data.thinking);
+      };
+
+      if (provider.proto === 'ollama') {
+        await APIService.streamOllama(provider, selectedModel, messageHistory, params, onChunk);
+      } else {
+        const result = await APIService.streamOpenAI(provider, selectedModel, messageHistory, params, onChunk);
+        if (result.reasoningContent) {
+          finalThinking = result.reasoningContent;
+          finalContent = result.rawContent;
+        } else {
+          const extracted = Utils.extractThinkTag(result.rawContent.trimStart());
+          finalThinking = extracted.thinking;
+          finalContent = extracted.content;
+        }
+      }
+    } catch (err) {
+      this._handleStreamError(conv, err);
+    } finally {
+      state.abortController = null;
+      state.isStreaming = false;
+      UI.setStreamingState(false);
+      Store.commit(state);
+
+      const lastMsg = conv.messages[conv.messages.length - 1];
+      lastMsg.content = finalContent;
+      lastMsg.thinking = finalThinking;
+
+      Store.commit(state);
+      UI.renderMessages();
+      UI.renderConversationList();
+      UI.resetTokenDisplay();
+    }
+  },
+
+  _updateStreamingMessage(conv, content, thinking) {
+    const lastMessage = conv.messages[conv.messages.length - 1];
+    lastMessage.content = content;
+    lastMessage.thinking = thinking;
+
+    const chatArea = DOM.query('#chatArea');
+    const messageBubbles = chatArea.querySelectorAll('.message');
+    const lastBubble = messageBubbles[messageBubbles.length - 1];
+    if (!lastBubble) return;
+
+    const bodyEl = lastBubble.querySelector('.message-body');
+    if (bodyEl) {
+      bodyEl.innerHTML = Utils.formatContent(content) + '<span class="cursor"></span>';
+    }
+
+    if (thinking) {
+      let thinkEl = lastBubble.querySelector('.thinking-block');
+      if (thinkEl) {
+        thinkEl.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div>${Utils.escapeHtml(thinking)}`;
+      } else {
+        thinkEl = document.createElement('div');
+        thinkEl.className = 'thinking-block';
+        thinkEl.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div>${Utils.escapeHtml(thinking)}`;
+        bodyEl.parentNode.insertBefore(thinkEl, bodyEl);
+      }
+    }
+
+    const state = Store.getState();
+    if (state.shouldAutoScroll) chatArea.scrollTop = chatArea.scrollHeight;
+
+    const totalChars = content.length + (thinking?.length || 0);
+    DOM.setText('#tokenCount', `TOKENS: ~${Math.ceil(totalChars / Config.APPROX_CHARS_PER_TOKEN)}`);
+  },
+
+  _handleStreamError(conv, err) {
+    const lastMessage = conv.messages[conv.messages.length - 1];
+
+    if (err.name === 'AbortError') {
+      if (!lastMessage.content && !lastMessage.thinking) {
+        lastMessage.content = '⊘ STOPPED';
+      }
+      UI.showToast('⊘ STOPPED');
+    } else {
+      lastMessage.content = '✕ ERROR: ' + err.message;
+      UI.showToast('✕ ' + err.message, true);
+      console.error('Streaming error:', err);
+    }
+  },
+
+  async copyMessageToClipboard(messageIndex) {
+    const conv = Store.getActiveConversation();
+    if (!conv?.messages[messageIndex]) return;
+
+    const text = Utils.extractTextContent(conv.messages[messageIndex].content);
+    try {
+      await navigator.clipboard.writeText(text);
+      UI.showToast('✓ COPIED');
+    } catch (err) {
+      UI.showToast('✕ Copy failed', true);
+    }
+  },
+
+  async regenerateLastResponse() {
+    const state = Store.getState();
+    if (state.isStreaming) return;
+
+    const conv = Store.getActiveConversation();
+    if (!conv || conv.messages.length < 2) return;
+    if (conv.messages[conv.messages.length - 1].role !== 'assistant') return;
+
+    conv.messages.pop();
+    Store.commit(state);
+    UI.renderMessages();
+    await this.runAssistant(conv);
+  },
+
+  // Modal Actions
+  openModal(providerId = null) {
+    const state = Store.getState();
+    state.editingProviderId = providerId;
+    state.selectedProto = 'ollama';
+
+    const isEditing = Boolean(providerId);
+    DOM.setText('#modalTitle', isEditing ? 'EDIT PROVIDER' : 'ADD PROVIDER');
+
+    if (isEditing) {
+      const existing = state.providers.find(p => p.id === providerId);
+      if (existing) {
+        DOM.query('#providerName').value = existing.name;
+        DOM.query('#providerUrl').value  = existing.url;
+        DOM.query('#providerKey').value  = existing.key || '';
+        this.selectProto(existing.proto);
+        this.setVisionToggle(Boolean(existing.supportsVision));
+      }
+    } else {
+      DOM.query('#providerName').value = '';
+      DOM.query('#providerUrl').value  = '';
+      DOM.query('#providerKey').value  = '';
+      this.selectProto('ollama');
+      this.setVisionToggle(false);
+    }
+
+    this._renderPresetGrid();
+    Store.commit(state);
+    DOM.query('#providerModal').classList.add('open');
+    DOM.query('#providerName').focus();
+  },
+
+  closeModal() {
+    DOM.query('#providerModal').classList.remove('open');
+    Store.commit({ editingProviderId: null });
+  },
+
+  selectProto(proto) {
+    const state = Store.getState();
+    state.selectedProto = proto;
+    Store.commit(state);
+
+    DOM.queryAll('.proto-option').forEach(option => {
+      option.classList.toggle('selected', option.dataset.proto === proto);
+    });
+
+    DOM.setText('#protoHint', Config.PROTO_HINTS[proto]);
+
+    const urlInput = DOM.query('#providerUrl');
+    if (!urlInput.value) {
+      urlInput.placeholder = proto === 'ollama'
+        ? 'http://localhost:11434'
+        : 'https://api.groq.com/openai';
+    }
+  },
+
+  setVisionToggle(isEnabled) {
+    const row       = DOM.query('#visionToggleRow');
+    const indicator = DOM.query('#visionCheckIndicator');
+    const checkbox  = DOM.query('#providerVision');
+
+    checkbox.checked    = isEnabled;
+    indicator.textContent = isEnabled ? '✓' : '';
+    row.classList.toggle('enabled', isEnabled);
+  },
+
+  _renderPresetGrid() {
+    const grid = DOM.query('#presetGrid');
+    grid.innerHTML = Config.PROVIDER_PRESETS.map((preset, idx) => `
+      <div class="preset-chip" data-preset-index="${idx}" title="${preset.url}">
+        <span class="chip-name">${Utils.escapeHtml(preset.name)}</span>
+        <span class="chip-tag">${preset.tag}</span>
+      </div>
+    `).join('');
+  },
+
+  applyPreset(presetIndex) {
+    const preset = Config.PROVIDER_PRESETS[presetIndex];
+    DOM.query('#providerName').value = preset.name;
+    DOM.query('#providerUrl').value  = preset.url;
+    this.selectProto(preset.proto);
+
+    DOM.queryAll('.preset-chip').forEach((chip, idx) => {
+      chip.style.borderColor = idx === presetIndex ? 'var(--accent2)' : '';
+      chip.style.color       = idx === presetIndex ? 'var(--accent2)' : '';
+    });
+
+    DOM.query('#providerKey').focus();
+  },
+
+  openSettingsModal() {
+    DOM.query('#settingsModal').classList.add('open');
+    DOM.query('#systemPrompt').focus();
+  },
+
+  closeSettingsModal() {
+    DOM.query('#settingsModal').classList.remove('open');
+  },
+
+  saveSettingsAndClose() {
+    const state = Store.getState();
+    state.settings = {
+      temperature:  parseFloat(DOM.query('#tempSlider').value),
+      topP:         parseFloat(DOM.query('#topPSlider').value),
+      maxTokens:    DOM.query('#maxTokens').value ? parseInt(DOM.query('#maxTokens').value) : null,
+      systemPrompt: DOM.query('#systemPrompt').value,
+    };
+
+    Store.commit(state);
+    DOM.query('#settingsModal').classList.remove('open');
+    UI.showToast('✓ SETTINGS SAVED');
+  },
+
+  // Input Handling
+  handleInputKeydown(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      this.sendMessage();
+    }
+  },
+
+  autoResizeTextarea(textarea) {
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, Config.MAX_INPUT_HEIGHT_PX) + 'px';
+  },
+
+  // Stop and Lightbox
+  stopStreaming() {
+    const state = Store.getState();
+    if (state.abortController) {
+      state.abortController.abort();
+      state.abortController = null;
+      Store.commit(state);
+    }
+  },
+
+  openLightbox(dataUrl) {
+    DOM.query('#lightboxImg').src = dataUrl;
+    DOM.query('#lightboxOverlay').classList.add('open');
+  },
+
+  closeLightbox() {
+    DOM.query('#lightboxOverlay').classList.remove('open');
+    DOM.query('#lightboxImg').src = '';
+  },
+};
+
+// ════════════════════════════════════════════════════════════════════════════════
+// LAYER 9: EVENT DELEGATION & DOM BINDING
+// ════════════════════════════════════════════════════════════════════════════════
+
+function setupEventDelegation() {
+  // Provider List Events
+  DOM.on('#providerList', 'click', (e) => {
+    const item = e.target.closest('.provider-item');
+    const editBtn = e.target.closest('[data-action="edit"]');
+    const deleteBtn = e.target.closest('[data-action="delete"]');
+
+    if (editBtn) {
+      e.stopPropagation();
+      Actions.openModal(editBtn.dataset.providerId);
+    } else if (deleteBtn) {
+      e.stopPropagation();
+      Actions.deleteProvider(deleteBtn.dataset.providerId);
+    } else if (item) {
+      Actions.activateProvider(item.dataset.providerId);
+    }
+  });
+
+  // Conversation List Events
+  DOM.on('#conversationList', 'click', (e) => {
+    const item = e.target.closest('.conv-item');
+    const deleteBtn = e.target.closest('[data-action="delete-conv"]');
+
+    if (deleteBtn) {
+      e.stopPropagation();
+      Actions.deleteConversation(deleteBtn.dataset.convId);
+    } else if (item) {
+      Actions.selectConversation(item.dataset.convId);
+    }
+  });
+
+  // Message Area Events
+  DOM.on('#chatArea', 'click', (e) => {
+    const copyBtn = e.target.closest('[data-action="copy"]');
+    const regenBtn = e.target.closest('[data-action="regen"]');
+    const lightboxImg = e.target.closest('[data-action="lightbox"]');
+
+    if (copyBtn) {
+      Actions.copyMessageToClipboard(parseInt(copyBtn.dataset.msgIndex));
+    } else if (regenBtn) {
+      Actions.regenerateLastResponse();
+    } else if (lightboxImg) {
+      Actions.openLightbox(lightboxImg.dataset.imageUrl);
+    }
+  });
+
+  // Pending Images Events
+  DOM.on('#pendingImagesBar', 'click', (e) => {
+    const removeBtn = e.target.closest('[data-action="remove-image"]');
+    if (removeBtn) {
+      Actions.removePendingImage(parseInt(removeBtn.dataset.imageIndex));
+    }
+  });
+
+  // Modal Events
+  DOM.on('#providerModal', 'click', (e) => {
+    if (e.target.id === 'providerModal') Actions.closeModal();
+  });
+
+  DOM.on('#settingsModal', 'click', (e) => {
+    if (e.target.id === 'settingsModal') Actions.closeSettingsModal();
+  });
+
+  DOM.on('#presetGrid', 'click', (e) => {
+    const chip = e.target.closest('.preset-chip');
+    if (chip) Actions.applyPreset(parseInt(chip.dataset.presetIndex));
+  });
+
+  // Input Area Events
+  DOM.on('#messageInput', 'keydown', (e) => Actions.handleInputKeydown(e));
+  DOM.on('#messageInput', 'input', (e) => Actions.autoResizeTextarea(e.target));
+  DOM.on('#messageInput', 'paste', (e) => {
+    if (e.clipboardData?.items) {
+      Actions.handlePaste(Array.from(e.clipboardData.items));
+    }
+  });
+
+  // File Input Events
+  DOM.on('#imageFileInput', 'change', (e) => {
+    Actions.handleImageFileSelection(e.target.files);
+    e.target.value = '';
+  });
+
+  // Button Events
+  DOM.on('#attachBtn', 'click', () => DOM.query('#imageFileInput').click());
+  DOM.on('#sendBtn', 'click', () => Actions.sendMessage());
+  DOM.on('#stopBtn', 'click', () => Actions.stopStreaming());
+  DOM.on('#lightboxOverlay', 'click', () => Actions.closeLightbox());
+  DOM.query('.lightbox-close').onclick = () => Actions.closeLightbox();
+
+  // Modal Button Events
+  DOM.query('.modal-close[onclick="closeModal()"]').onclick = () => Actions.closeModal();
+  DOM.query('.modal-close[onclick="closeSettingsModal()"]').onclick = () => Actions.closeSettingsModal();
+
+  // Keyboard Shortcut
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') Actions.closeLightbox();
+  });
+
+  // Auto-Scroll
+  const chatArea = DOM.query('#chatArea');
+  chatArea.addEventListener('wheel', (e) => {
+    if (e.deltaY < 0) Store.commit({ shouldAutoScroll: false });
   }, { passive: true });
 
   chatArea.addEventListener('scroll', () => {
-    const distanceFromBottom = chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight;
-    if (distanceFromBottom < AUTO_SCROLL_THRESHOLD_PX) shouldAutoScroll = true;
+    const state = Store.getState();
+    const distFromBottom = chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight;
+    if (distFromBottom < Config.AUTO_SCROLL_THRESHOLD_PX) {
+      Store.commit({ shouldAutoScroll: true });
+    }
   }, { passive: true });
+
+  // Settings Inputs
+  DOM.query('#tempSlider').oninput = (e) => {
+    DOM.setText('#tempVal', parseFloat(e.target.value).toFixed(2));
+  };
+  DOM.query('#topPSlider').oninput = (e) => {
+    DOM.setText('#topPVal', parseFloat(e.target.value).toFixed(2));
+  };
+
+  // Vision Toggle
+  DOM.on('#visionToggleRow', 'click', () => {
+    const checkbox = DOM.query('#providerVision');
+    Actions.setVisionToggle(!checkbox.checked);
+  });
+
+  // Proto Selection
+  DOM.on('.proto-option', 'click', (e) => {
+    Actions.selectProto(e.target.dataset.proto);
+  });
+
+  // Global Button Handlers
+  DOM.query('[onclick="openModal()"]').onclick = () => Actions.openModal();
+  DOM.query('[onclick="openSettingsModal()"]').onclick = () => Actions.openSettingsModal();
+  DOM.query('[onclick="newConversation()"]').onclick = () => Actions.newConversation();
+  DOM.query('[onclick="clearAllConversations()"]').onclick = () => Actions.clearAllConversations();
+  DOM.query('[onclick="saveProvider()"]').onclick = () => Actions.saveProvider();
+  DOM.query('[onclick="saveSettingsAndClose()"]').onclick = () => Actions.saveSettingsAndClose();
+  DOM.query('[onclick="toggleVisionSupport()"]').onclick = () => {
+    const checkbox = DOM.query('#providerVision');
+    Actions.setVisionToggle(!checkbox.checked);
+  };
 }
 
-// ── Modal Outside-Click Dismissal ───────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════════
+// LAYER 10: INITIALIZATION & BOOTSTRAP
+// ════════════════════════════════════════════════════════════════════════════════
 
-document.getElementById('providerModal').addEventListener('click', function(event) {
-  if (event.target === this) closeModal();
-});
+function initApp() {
+  const state = Store.getState();
 
-document.getElementById('settingsModal').addEventListener('click', function(event) {
-  if (event.target === this) closeSettingsModal();
-});
+  // Load settings
+  const settings = state.settings;
+  if (settings.temperature !== undefined) {
+    DOM.query('#tempSlider').value = settings.temperature;
+    DOM.setText('#tempVal', Number(settings.temperature).toFixed(2));
+  }
+  if (settings.topP !== undefined) {
+    DOM.query('#topPSlider').value = settings.topP;
+    DOM.setText('#topPVal', Number(settings.topP).toFixed(2));
+  }
+  if (settings.maxTokens) {
+    DOM.query('#maxTokens').value = settings.maxTokens;
+  }
+  if (settings.systemPrompt) {
+    DOM.query('#systemPrompt').value = settings.systemPrompt;
+  }
 
-// ── Initialization ──────────────────────────────────────────────────────────
+  // Render UI
+  UI.renderProviderList();
+  UI.renderConversationList();
+  UI.renderMessages();
+  UI.updateAttachButtonVisibility();
 
-loadSettings();
-renderProviderList();
-renderConversationList();
-renderMessages();
-initAutoScrollBehavior();
-updateAttachButtonVisibility();
+  // Setup event delegation
+  setupEventDelegation();
 
-if (activeProviderId && providers.find(provider => provider.id === activeProviderId)) {
-  activateProvider(activeProviderId);
-} else if (providers.length > 0) {
-  activateProvider(providers[0].id);
+  // Activate provider
+  if (state.activeProviderId && state.providers.find(p => p.id === state.activeProviderId)) {
+    Actions.activateProvider(state.activeProviderId);
+  } else if (state.providers.length > 0) {
+    Actions.activateProvider(state.providers[0].id);
+  } else {
+    UI.updateProviderBadge();
+  }
+
+  // Subscribe to state changes for reactive UI updates
+  Store.subscribe((newState) => {
+    // Auto-update UI on critical state changes
+    if (newState.providers) UI.renderProviderList();
+    if (newState.conversations) UI.renderConversationList();
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// BOOTSTRAP
+// ════════════════════════════════════════════════════════════════════════════════
+
+document.addEventListener('DOMContentLoaded', initApp);
+
+// Fallback for immediate execution if DOM is already loaded
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initApp);
 } else {
-  updateProviderBadge();
+  initApp();
 }
+</script>
 </script>
 </body>
 </html>
