@@ -1,0 +1,1474 @@
+
+// ════════════════════════════════════════════════════════════════════════
+// CONFIG
+// ════════════════════════════════════════════════════════════════════════
+const Config = Object.freeze({
+    TOAST_DISPLAY_MS: 3000,
+    AUTO_SCROLL_THRESHOLD_PX: 80,
+    MAX_INPUT_HEIGHT_PX: 140,
+    MIN_INPUT_HEIGHT_PX: 46,
+    TOKEN_DISPLAY_RESET_MS: 5000,
+    APPROX_CHARS_PER_TOKEN: 4,
+    IMAGE_COMPRESS_MAX_EDGE_PX: 1024,
+    IMAGE_COMPRESS_QUALITY: 0.82,
+    IMAGE_COMPRESS_FORMAT: 'image/jpeg',
+    MAX_PENDING_IMAGES: 4,
+    STORAGE_KEYS: {
+        providers: 'llm_providers',
+        activeProvider: 'llm_active_provider',
+        conversations: 'llm_convs',
+        settings: 'llm_settings',
+        prompts: 'llm_prompts',
+    },
+    PROTO_COLORS: { ollama: '#286983', openai: '#56949f' },
+    PROTO_HINTS: {
+        ollama: 'Ollama /api/chat — supports thinking field natively',
+        openai: 'OpenAI-compatible /v1/chat/completions — Groq, Together, etc.',
+    },
+    PROVIDER_PRESETS: [
+        { name: 'Groq', url: 'https://api.groq.com/openai', proto: 'openai', tag: 'FREE·快' },
+        { name: 'Mistral', url: 'https://api.mistral.ai/v1', proto: 'openai', tag: 'FREE·EU' },
+        { name: 'Google AI', url: 'https://generativelanguage.googleapis.com/v1beta/openai', proto: 'openai', tag: 'Gemini' },
+        { name: 'Cerebras', url: 'https://api.cerebras.ai/v1', proto: 'openai', tag: 'LPU' },
+        { name: 'Together', url: 'https://api.together.xyz/v1', proto: 'openai', tag: '$25' },
+        { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1', proto: 'openai', tag: '聚合' },
+        { name: '硅基流动', url: 'https://api.siliconflow.ai/v1', proto: 'openai', tag: '模型多' },
+        { name: '火山引擎', url: 'https://ark.cn-beijing.volces.com/api/v3', proto: 'openai', tag: '字节' },
+        { name: '智谱 GLM', url: 'https://api.z.ai/api/paas/v4', proto: 'openai', tag: '免费' },
+        { name: 'Kimi', url: 'https://api.moonshot.cn/v1', proto: 'openai', tag: '长文档' },
+        { name: 'Ollama', url: 'http://localhost:11434', proto: 'ollama', tag: '本地' },
+        { name: 'LM Studio', url: 'http://localhost:1234/v1', proto: 'openai', tag: '本地' },
+    ],
+    BUILTIN_PROMPTS: [
+        { name: 'Blank', content: '' },
+        { name: 'Coding Expert', content: 'You are an expert software engineer. Be precise, technical, and terse. Write clean, idiomatic code. Point out bugs and edge cases. Skip pleasantries.' },
+        { name: 'Socratic Tutor', content: 'Guide the user toward understanding through questions. Never give direct answers. Diagnose their mental model first.' },
+        { name: 'Adversarial QA', content: 'Challenge every claim. Ask for evidence. Point out logical fallacies. Be rigorous, not hostile.' },
+        { name: 'Translator', content: 'Translate every message to English if not already in English, or to the last language the user specified. Respond only with the translation.' }
+    ],
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// UTILS
+// ════════════════════════════════════════════════════════════════════════
+const Utils = {
+    esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+    formatDate(d) { return new Date(d).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }); },
+    formatTime(d) { return new Date(d).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); },
+    id() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); },
+    extractText(content) {
+        if (typeof content === 'string') return content;
+        if (!Array.isArray(content)) return '';
+        return content.filter(p => p.type === 'text').map(p => p.text).join('');
+    },
+    extractThinkTag(raw) {
+        const full = raw.match(/^<think>([\s\S]*?)<\/think>\s*/);
+        if (full) return { thinking: full[1].trim(), content: raw.slice(full[0].length) };
+        if (raw.startsWith('<think>') && !raw.includes('</think>')) return { thinking: raw.slice(7).trim(), content: '' };
+        const ci = raw.indexOf('</think>');
+        if (ci !== -1) return { thinking: raw.slice(0, ci).trim(), content: raw.slice(ci + 8).trimStart() };
+        return { thinking: '', content: raw };
+    },
+    formatContent(text) {
+        if (!text) return '';
+        return this.esc(text)
+            .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\n/g, '<br>');
+    },
+    parseStopSeqs(raw) {
+        if (!raw || !raw.trim()) return null;
+        const matches = raw.match(/"([^"]*)"/g);
+        if (matches) return matches.map(m => m.slice(1, -1));
+        return raw.split(',').map(s => s.trim()).filter(Boolean);
+    },
+};
+
+// ════════════════════════════════════════════════════════════════════════
+// STORAGE
+// ════════════════════════════════════════════════════════════════════════
+const Storage = {
+    get(k, def = null) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.error(e); } },
+};
+
+// ════════════════════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════════════════════
+const State = {
+    providers: Storage.get(Config.STORAGE_KEYS.providers, []),
+    activeProviderId: Storage.get(Config.STORAGE_KEYS.activeProvider, null),
+    conversations: Storage.get(Config.STORAGE_KEYS.conversations, []),
+    activeConvId: null,
+    settings: Storage.get(Config.STORAGE_KEYS.settings, {}),
+    prompts: Storage.get(Config.STORAGE_KEYS.prompts, []),
+    activePromptId: null,
+    isStreaming: false,
+    shouldAutoScroll: true,
+    pendingImages: [],
+    editingProvider: null,
+    selectedProto: 'ollama',
+    abortController: null,
+    insertAfterIndex: -1,   // index of message to insert after (-1 = prepend)
+    insertRole: 'user',
+    editingMsgIdx: null,
+    visionEnabled: false, // current provider vision flag
+    thinkingEnabled: true, // extended thinking / chain-of-thought toggle
+    streamEnabled: true,
+
+    save() {
+        Storage.set(Config.STORAGE_KEYS.providers, this.providers);
+        Storage.set(Config.STORAGE_KEYS.activeProvider, this.activeProviderId);
+        Storage.set(Config.STORAGE_KEYS.conversations, this.conversations);
+        Storage.set(Config.STORAGE_KEYS.settings, this.settings);
+        Storage.set(Config.STORAGE_KEYS.prompts, this.prompts);
+    },
+
+    getProvider() { return this.providers.find(p => p.id === this.activeProviderId) || null; },
+    getConversation() { return this.conversations.find(c => c.id === this.activeConvId) || null; },
+};
+
+// ════════════════════════════════════════════════════════════════════════
+// API SERVICE
+// ════════════════════════════════════════════════════════════════════════
+const API = {
+    async fetchModels(provider) {
+        return provider.proto === 'ollama'
+            ? this._fetchOllamaModels(provider)
+            : this._fetchOpenAIModels(provider);
+    },
+
+    async _fetchOllamaModels(p) {
+        const h = p.key ? { Authorization: `Bearer ${p.key}` } : {};
+        const r = await fetch(`${p.url}/api/tags`, { headers: h });
+        if (!r.ok) {
+            let msg = 'HTTP ' + r.status;
+            try {
+                const errBody = await r.json();
+                if (errBody?.error) msg = errBody.error;
+            } catch { }
+            // 400 from a non-thinking model: strip the flag and retry once
+            if (r.status === 400 && params.thinkingEnabled) {
+                toast('⚠ Model does not support thinking — retrying without it');
+                const retryParams = { ...params, thinkingEnabled: false };
+                const retryBody = { model, messages, stream: retryParams.streamEnabled !== false, options };
+                const r2 = await fetch(`${p.url}/api/chat`, {
+                    method: 'POST', signal: params.signal,
+                    headers: { 'Content-Type': 'application/json', ...(p.key ? { Authorization: `Bearer ${p.key}` } : {}) },
+                    body: JSON.stringify(retryBody),
+                });
+                if (!r2.ok) throw new Error('HTTP ' + r2.status);
+                const reader2 = r2.body.getReader();
+                const dec2 = new TextDecoder();
+                let acc2 = '', accT2 = '';
+                try {
+                    while (true) {
+                        const { done, value } = await reader2.read();
+                        if (done) break;
+                        for (const line of dec2.decode(value).split('\n').filter(l => l.trim())) {
+                            try {
+                                const chunk = JSON.parse(line);
+                                if (chunk.message?.content) acc2 += chunk.message.content;
+                                onChunk({ content: acc2, thinking: accT2 });
+                            } catch { }
+                        }
+                    }
+                } finally { reader2.cancel(); }
+                return;
+            }
+            throw new Error(msg);
+        }
+        const d = await r.json();
+        return (d.models || []).map(m => m.name);
+    },
+
+    async _fetchOpenAIModels(p) {
+        const url = this._addVersion(p.url) + '/models';
+        const r = await fetch(url, {
+            headers: { Authorization: `Bearer ${p.key || 'none'}`, 'Content-Type': 'application/json' }
+        });
+        if (!r.ok) {
+            let msg = 'HTTP ' + r.status;
+            try {
+                const errBody = await r.json();
+                if (errBody?.error) msg = errBody.error;
+            } catch { }
+            // 400 from a non-thinking model: strip the flag and retry once
+            if (r.status === 400 && params.thinkingEnabled) {
+                toast('⚠ Model does not support thinking — retrying without it');
+                const retryParams = { ...params, thinkingEnabled: false };
+                const retryBody = { model, messages, stream: retryParams.streamEnabled !== false, options };
+                const r2 = await fetch(`${p.url}/api/chat`, {
+                    method: 'POST', signal: params.signal,
+                    headers: { 'Content-Type': 'application/json', ...(p.key ? { Authorization: `Bearer ${p.key}` } : {}) },
+                    body: JSON.stringify(retryBody),
+                });
+                if (!r2.ok) throw new Error('HTTP ' + r2.status);
+                const reader2 = r2.body.getReader();
+                const dec2 = new TextDecoder();
+                let acc2 = '', accT2 = '';
+                try {
+                    while (true) {
+                        const { done, value } = await reader2.read();
+                        if (done) break;
+                        for (const line of dec2.decode(value).split('\n').filter(l => l.trim())) {
+                            try {
+                                const chunk = JSON.parse(line);
+                                if (chunk.message?.content) acc2 += chunk.message.content;
+                                onChunk({ content: acc2, thinking: accT2 });
+                            } catch { }
+                        }
+                    }
+                } finally { reader2.cancel(); }
+                return;
+            }
+            throw new Error(msg);
+        }
+        const d = await r.json();
+        return (d.data || []).map(m => m.id).sort();
+    },
+
+    _addVersion(url) {
+        return (url.endsWith('/v1') || /\/v\d+$/.test(url)) ? url : url + '/v1';
+    },
+
+    async streamOllama(p, model, messages, params, onChunk) {
+        const { temperature, topP, topK, maxTokens, seed, stopSeqs, signal, thinkingEnabled, streamEnabled } = params;
+        const options = { temperature };
+        if (topP < 1) options.top_p = topP;
+        if (topK > 0) options.top_k = topK;
+        if (maxTokens) options.num_predict = maxTokens;
+        if (seed != null) options.seed = seed;
+        if (stopSeqs) options.stop = stopSeqs;
+
+        const body = { model, messages, stream: streamEnabled !== false, options };
+        if (thinkingEnabled) body.think = true;
+
+        const r = await fetch(`${p.url}/api/chat`, {
+            method: 'POST', signal,
+            headers: { 'Content-Type': 'application/json', ...(p.key ? { Authorization: `Bearer ${p.key}` } : {}) },
+            body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+
+        const reader = r.body.getReader();
+        const dec = new TextDecoder();
+        let acc = '', accT = '';
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                for (const line of dec.decode(value).split('\n').filter(l => l.trim())) {
+                    try {
+                        const chunk = JSON.parse(line);
+                        if (chunk.message?.content) acc += chunk.message.content;
+                        if (chunk.message?.thinking) accT += chunk.message.thinking;
+                        onChunk({ content: acc, thinking: accT });
+                    } catch { }
+                }
+            }
+        } finally { reader.cancel(); }
+    },
+
+    async streamOpenAI(p, model, messages, params, onChunk) {
+        const { temperature, topP, topK, freqPen, presPen, maxTokens, seed, stopSeqs, signal, thinkingEnabled, streamEnabled } = params;
+        const url = this._addVersion(p.url) + '/chat/completions';
+
+        const body = { model, messages, stream: streamEnabled !== false, temperature };
+        if (topP < 1) body.top_p = topP;
+        if (topK > 0) body.top_k = topK;
+        if (freqPen !== 0) body.frequency_penalty = freqPen;
+        if (presPen !== 0) body.presence_penalty = presPen;
+        if (maxTokens) body.max_tokens = maxTokens;
+        if (seed != null) body.seed = seed;
+        if (stopSeqs) body.stop = stopSeqs;
+
+        // OpenAI reasoning_effort for o-series / extended thinking params
+        if (thinkingEnabled) {
+            body.reasoning_effort = 'high';
+        }
+
+        const r = await fetch(url, {
+            method: 'POST', signal,
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.key || 'none'}` },
+            body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.error?.message || 'HTTP ' + r.status);
+        }
+
+        if (!streamEnabled) {
+            const data = await r.json();
+            const choice = data.choices?.[0];
+            const raw = choice?.message?.content || '';
+            const reasoning = choice?.message?.reasoning_content || '';
+            const { thinking, content } = reasoning ? { thinking: reasoning, content: raw } : Utils.extractThinkTag(raw.trimStart());
+            onChunk({ content, thinking });
+            return { rawContent: content, reasoningContent: thinking };
+        }
+
+        return this._readSSE(r, onChunk);
+    },
+
+    async _readSSE(r, onChunk) {
+        const reader = r.body.getReader();
+        const dec = new TextDecoder();
+        let raw = '', reasoning = '', buf = '';
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += dec.decode(value, { stream: true });
+                const lines = buf.split('\n');
+                buf = lines.pop();
+                for (const line of lines) {
+                    const t = line.trim();
+                    if (!t || t === 'data: [DONE]') continue;
+                    if (!t.startsWith('data: ')) continue;
+                    try {
+                        const d = JSON.parse(t.slice(6));
+                        const delta = d.choices?.[0]?.delta;
+                        if (!delta) continue;
+                        if (delta.reasoning_content) reasoning += delta.reasoning_content;
+                        if (delta.content) raw += delta.content;
+                        onChunk({ content: raw, thinking: reasoning });
+                    } catch { }
+                }
+            }
+        } finally { reader.cancel(); }
+
+        // Handle inline <think> tags from models that don't use separate field
+        if (!reasoning) {
+            const ex = Utils.extractThinkTag(raw.trimStart());
+            return { rawContent: ex.content, reasoningContent: ex.thinking };
+        }
+        return { rawContent: raw, reasoningContent: reasoning };
+    },
+};
+
+// ════════════════════════════════════════════════════════════════════════
+// IMAGE SERVICE
+// ════════════════════════════════════════════════════════════════════════
+const ImageSvc = {
+    async compress(file) {
+        return new Promise((res, rej) => {
+            const img = new Image();
+            const url = URL.createObjectURL(file);
+            img.onload = () => {
+                URL.revokeObjectURL(url);
+                let { width: w, height: h } = img;
+                const m = Config.IMAGE_COMPRESS_MAX_EDGE_PX;
+                if (w > m || h > m) {
+                    if (w >= h) { h = Math.round((h / w) * m); w = m; }
+                    else { w = Math.round((w / h) * m); h = m; }
+                }
+                const c = document.createElement('canvas');
+                c.width = w; c.height = h;
+                c.getContext('2d').drawImage(img, 0, 0, w, h);
+                res(c.toDataURL(Config.IMAGE_COMPRESS_FORMAT, Config.IMAGE_COMPRESS_QUALITY));
+            };
+            img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('Load failed')); };
+            img.src = url;
+        });
+    },
+};
+
+// ════════════════════════════════════════════════════════════════════════
+// MESSAGE BUILDERS
+// ════════════════════════════════════════════════════════════════════════
+function buildWireMessages(conv, systemPrompt, proto) {
+    const out = [];
+    if (systemPrompt) out.push({ role: 'system', content: systemPrompt });
+    conv.messages.slice(0, -1).forEach(m => out.push(toWire(m, proto)));
+    return out;
+}
+
+function toWire(m, proto) {
+    if (!m.images?.length) return { role: m.role, content: m.content || '' };
+    if (proto === 'ollama') {
+        return {
+            role: m.role, content: m.content || '',
+            images: m.images.map(d => { const i = d.indexOf(','); return i >= 0 ? d.slice(i + 1) : d; }),
+        };
+    }
+    // OpenAI vision
+    const parts = m.images.map(d => ({ type: 'image_url', image_url: { url: d } }));
+    if (m.content) parts.push({ type: 'text', text: m.content });
+    return { role: m.role, content: parts };
+}
+
+function newMessage(role, content, images = null, thinking = '') {
+    return { id: Utils.id(), role, content, images: (images?.length ? images : undefined), thinking, time: new Date().toISOString() };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// RENDER
+// ════════════════════════════════════════════════════════════════════════
+function renderAll() {
+    renderProviders();
+    renderConversations();
+    renderMessages();
+    renderPromptList();
+    updateAttachBtn();
+    updateProviderBadge();
+}
+
+function renderProviders() {
+    const el = document.getElementById('providerList');
+    if (!State.providers.length) {
+        el.innerHTML = '<div style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--text-dim);text-align:center;padding:8px;letter-spacing:1px">NO PROVIDERS</div>';
+        return;
+    }
+    el.innerHTML = State.providers.map(p => {
+        const col = Config.PROTO_COLORS[p.proto];
+        const v = p.supportsVision ? '<span style="font-size:9px;color:var(--accent3);margin-left:3px">👁</span>' : '';
+        return `<div class="provider-item${p.id === State.activeProviderId ? ' active' : ''}" data-pid="${p.id}">
+      <div class="provider-dot" style="background:${col};box-shadow:0 0 5px ${col}"></div>
+      <div class="provider-info">
+        <div class="provider-name">${Utils.esc(p.name)}${v}</div>
+        <div class="provider-url">${Utils.esc(p.url.replace(/^https?:\/\//, ''))}</div>
+      </div>
+      <div class="provider-actions">
+        <button class="icon-btn" data-action="edit-provider" data-pid="${p.id}">✎</button>
+        <button class="icon-btn del" data-action="del-provider" data-pid="${p.id}">✕</button>
+      </div>
+    </div>`;
+    }).join('');
+}
+
+function renderConversations() {
+    const el = document.getElementById('conversationList');
+    if (!State.conversations.length) {
+        el.innerHTML = '<div style="padding:10px;font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--text-dim);letter-spacing:2px;text-align:center">NO SESSIONS</div>';
+        return;
+    }
+    el.innerHTML = State.conversations.map(c => `
+    <div class="conv-item${c.id === State.activeConvId ? ' active' : ''}" data-cid="${c.id}">
+      <button class="conv-delete" data-action="del-conv" data-cid="${c.id}">×</button>
+      <div class="conv-title">${Utils.esc(c.title)}</div>
+      <div class="conv-meta">${c.messages.length} MSG · ${Utils.formatDate(c.createdAt)}</div>
+    </div>
+  `).join('');
+}
+
+function renderMessages() {
+    const area = document.getElementById('chatArea');
+    const conv = State.getConversation();
+
+    if (!conv || !conv.messages.length) {
+        area.innerHTML = `<div class="empty-state">
+      <div class="empty-geo"><svg viewBox="0 0 120 120" fill="none">
+        <polygon points="60,5 115,32.5 115,87.5 60,115 5,87.5 5,32.5" stroke="#dfdad9" stroke-width="1"/>
+        <polygon points="60,20 100,40 100,80 60,100 20,80 20,40" stroke="#cecacd" stroke-width="1"/>
+        <polygon points="60,35 85,47.5 85,72.5 60,85 35,72.5 35,47.5" stroke="#286983" stroke-width="1" opacity="0.5"/>
+        <circle cx="60" cy="60" r="8" stroke="#286983" stroke-width="1"/>
+        <circle cx="60" cy="60" r="3" fill="#286983" opacity="0.6"/>
+      </svg></div>
+      <div class="empty-text">AWAITING INPUT</div>
+    </div>`;
+        return;
+    }
+
+    let html = '';
+    // Insert divider before first message
+    html += insertDividerHtml(-1);
+
+    conv.messages.forEach((m, i) => {
+        html += buildMessageHtml(m, i, i === conv.messages.length - 1);
+        html += insertDividerHtml(i);
+    });
+
+    area.innerHTML = html;
+    if (State.shouldAutoScroll) area.scrollTop = area.scrollHeight;
+}
+
+function insertDividerHtml(afterIndex) {
+    return `<div class="insert-divider">
+    <button class="insert-btn" data-action="insert-msg" data-after="${afterIndex}">＋ INSERT</button>
+  </div>`;
+}
+
+function buildMessageHtml(m, idx, isLast) {
+    const isUser = m.role === 'user';
+    const isAsst = m.role === 'assistant';
+    const isSys = m.role === 'system';
+
+    const avatarHtml = isUser
+        ? `<svg viewBox="0 0 32 32" fill="none"><polygon points="16,2 30,9 30,23 16,30 2,23 2,9" stroke="#ea9d34" stroke-width="1" fill="rgba(234,157,52,0.08)"/><circle cx="16" cy="16" r="3" fill="#ea9d34" opacity="0.8"/></svg>`
+        : isAsst
+            ? `<svg viewBox="0 0 32 32" fill="none"><rect x="2" y="2" width="28" height="28" stroke="#286983" stroke-width="1" fill="rgba(40,105,131,0.07)"/><circle cx="16" cy="16" r="4" stroke="#286983" stroke-width="1"/><circle cx="16" cy="16" r="1.5" fill="#286983" opacity="0.8"/></svg>`
+            : `<svg viewBox="0 0 32 32" fill="none"><polygon points="16,2 30,9 30,23 16,30 2,23 2,9" stroke="#907aa9" stroke-width="1" fill="rgba(144,122,169,0.08)"/><circle cx="16" cy="16" r="3" fill="#907aa9" opacity="0.8"/></svg>`;
+
+    const roleLabel = isUser ? 'USER' : isAsst ? 'ASSISTANT' : 'SYSTEM';
+    const thinkHtml = m.thinking
+        ? `<div class="thinking-block"><div class="thinking-label">// CHAIN OF THOUGHT</div>${Utils.esc(m.thinking)}</div>`
+        : '';
+
+    const imagesHtml = m.images?.length
+        ? `<div class="message-images">${m.images.map((d, i) => `<img class="message-image-thumb" src="${d}" alt="" data-action="lightbox" data-src="${Utils.esc(d)}">`).join('')}</div>`
+        : '';
+
+    const text = Utils.extractText(m.content);
+
+    const regenBtn = `<button class="msg-btn regen" data-action="regen-from" data-idx="${idx}" data-role="${m.role}">↺ REGEN</button>`;
+
+    return `<div class="message ${m.role}" data-mid="${m.id}">
+    <div class="message-avatar">${avatarHtml}</div>
+    <div class="message-content">
+      <div class="message-header">
+        <span class="message-role role-${m.role}">${roleLabel}</span>
+        <span class="message-time">${Utils.formatTime(m.time)}</span>
+      </div>
+      ${thinkHtml}
+      <div class="message-body">
+        ${imagesHtml}
+        <span class="msg-text">${Utils.formatContent(text)}</span>
+      </div>
+      <div class="message-actions">
+        <button class="msg-btn" data-action="copy-msg" data-idx="${idx}">⎘ COPY</button>
+        <button class="msg-btn" data-action="edit-msg" data-idx="${idx}">✎ EDIT</button>
+        <button class="msg-btn del" data-action="del-msg" data-idx="${idx}">✕ DEL</button>
+        ${regenBtn}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderPromptList() {
+    const list = document.getElementById('promptList');
+    if (!State.prompts.length) {
+        list.innerHTML = '<div style="font-family:\'Share Tech Mono\',monospace;font-size:9px;color:var(--text-dim);padding:4px;letter-spacing:1px">NO SAVED PROMPTS</div>';
+    } else {
+        list.innerHTML = State.prompts.map(p => `
+      <div class="prompt-item${p.id === State.activePromptId ? ' active' : ''}" data-pid="${p.id}" data-action="use-prompt" style="position:relative">
+        <div style="flex:1;min-width:0">
+          <div class="prompt-name">${Utils.esc(p.name)}</div>
+          <div class="prompt-preview">${Utils.esc((p.content || '(blank)').slice(0, 60))}</div>
+        </div>
+        <div class="prompt-actions">
+          <button class="icon-btn del" data-action="del-prompt" data-pid="${p.id}">✕</button>
+        </div>
+      </div>
+    `).join('');
+    }
+
+    // Builtin
+    const bl = document.getElementById('builtinPromptList');
+    bl.innerHTML = Config.BUILTIN_PROMPTS.map((p, i) => `
+    <div class="prompt-item" data-action="use-builtin" data-bi="${i}">
+      <div style="flex:1;min-width:0">
+        <div class="prompt-name">${Utils.esc(p.name)}</div>
+        <div class="prompt-preview">${Utils.esc((p.content || '(blank)').slice(0, 55))}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function updateAttachBtn() {
+    const p = State.getProvider();
+    const btn = document.getElementById('attachBtn');
+    const vis = p?.supportsVision || false;
+    State.visionEnabled = vis;
+    btn.classList.toggle('vision-enabled', vis);
+}
+
+function updateProviderBadge() {
+    const p = State.getProvider();
+    const dot = document.getElementById('statusDot');
+    const badge = document.getElementById('activeBadge');
+    if (!p) {
+        dot.classList.add('offline');
+        document.getElementById('statusText').textContent = 'NO PROVIDER';
+        badge.style.display = 'none';
+        return;
+    }
+    badge.style.display = 'inline-flex';
+    document.getElementById('badgeName').textContent = p.name;
+    document.getElementById('badgeProto').textContent = p.proto.toUpperCase();
+    document.getElementById('badgeVision').style.display = p.supportsVision ? 'inline' : 'none';
+}
+
+function updatePendingImagesBar() {
+    const bar = document.getElementById('pendingImagesBar');
+    const btn = document.getElementById('attachBtn');
+    const images = State.pendingImages;
+    if (!images.length) {
+        bar.classList.remove('has-images');
+        bar.innerHTML = '<span class="pending-images-label">ATTACHED:</span>';
+        btn.classList.remove('has-images');
+        return;
+    }
+    bar.classList.add('has-images');
+    btn.classList.add('has-images');
+    bar.innerHTML = `<span class="pending-images-label">ATTACHED:</span>
+    ${images.map((d, i) => `<div class="pending-image-item">
+      <img class="pending-image-thumb" src="${d}">
+      <button class="pending-image-remove" data-action="rm-img" data-i="${i}">×</button>
+    </div>`).join('')}`;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// INLINE MESSAGE EDITING
+// ════════════════════════════════════════════════════════════════════════
+function startEditMessage(idx) {
+    const conv = State.getConversation();
+    if (!conv) return;
+    const m = conv.messages[idx];
+    State.editingMsgIdx = idx;
+
+    // Reuse insert modal
+    document.getElementById('insertModalTitle').textContent = `EDIT ${m.role.toUpperCase()} MESSAGE`;
+    document.getElementById('insertContent').value = Utils.extractText(m.content || '');
+    document.getElementById('confirmInsertBtn').textContent = 'SAVE';
+
+    // Set role selector to match message role, disable changing it
+    document.querySelectorAll('#insertRoleRow .role-option').forEach(o => {
+        o.className = 'role-option';
+        if (o.dataset.role === m.role) o.classList.add(`selected-${m.role}`);
+    });
+    document.getElementById('insertRoleRow').dataset.locked = 'true';
+    document.getElementById('systemMsgNote').style.display = m.role === 'system' ? 'block' : 'none';
+
+    // Add regen button dynamically if last assistant message
+    let regenBtn = document.getElementById('editRegenBtn');
+    const isLastAsst = m.role === 'assistant' && idx === conv.messages.length - 1;
+    if (!regenBtn) {
+        regenBtn = document.createElement('button');
+        regenBtn.id = 'editRegenBtn';
+        regenBtn.className = 'btn btn-sm';
+        regenBtn.style.cssText = 'border-color:var(--accent3);color:var(--accent3)';
+        regenBtn.textContent = 'SAVE + REGEN';
+        regenBtn.addEventListener('click', () => confirmEditMessage(true));
+        document.getElementById('insertModal').querySelector('.modal-footer').prepend(regenBtn);
+    }
+    regenBtn.style.display = isLastAsst ? 'flex' : 'none';
+
+    document.getElementById('insertModal').classList.add('open');
+    document.getElementById('insertContent').focus();
+}
+
+
+
+// ════════════════════════════════════════════════════════════════════════
+// CONVERSATION ACTIONS
+// ════════════════════════════════════════════════════════════════════════
+function newConversation() {
+    const c = { id: Utils.id(), title: 'NEW SESSION', messages: [], createdAt: new Date().toISOString() };
+    State.conversations.unshift(c);
+    State.activeConvId = c.id;
+    State.save();
+    renderConversations();
+    renderMessages();
+}
+
+function selectConversation(id) {
+    State.activeConvId = id;
+    renderConversations();
+    renderMessages();
+}
+
+async function deleteConversation(id) {
+    const c = State.conversations.find(x => x.id === id);
+    const ok = await showConfirm(`DELETE SESSION\n"${c?.title || id}"?`);
+    if (!ok) return;
+    State.conversations = State.conversations.filter(x => x.id !== id);
+    if (State.activeConvId === id) State.activeConvId = State.conversations[0]?.id || null;
+    State.save();
+    renderConversations();
+    renderMessages();
+}
+
+async function clearAllConversations() {
+    const ok = await showConfirm('CLEAR ALL SESSIONS?\nThis cannot be undone.');
+    if (!ok) return;
+    State.conversations = [];
+    State.activeConvId = null;
+    State.save();
+    renderConversations();
+    renderMessages();
+}
+
+async function deleteMessage(idx) {
+    const conv = State.getConversation();
+    if (!conv) return;
+    const role = conv.messages[idx]?.role?.toUpperCase() || 'MSG';
+    const preview = Utils.extractText(conv.messages[idx]?.content || '').slice(0, 60);
+    const ok = await showConfirm(`DELETE ${role} MESSAGE?\n"${preview}${preview.length >= 60 ? '…' : ''}"`);
+    if (!ok) return;
+    conv.messages.splice(idx, 1);
+    State.save();
+    renderMessages();
+}
+// ════════════════════════════════════════════════════════════════════════
+// INSERT MESSAGE
+// ════════════════════════════════════════════════════════════════════════
+function openInsertModal(afterIndex) {
+    State.insertAfterIndex = afterIndex;
+    State.insertRole = 'user';
+    document.getElementById('insertContent').value = '';
+    document.getElementById('insertModalTitle').textContent = afterIndex === -1 ? 'INSERT AT START' : `INSERT AFTER MSG ${afterIndex + 1}`;
+    // Reset role UI
+    document.querySelectorAll('#insertRoleRow .role-option').forEach(o => {
+        o.className = 'role-option';
+        if (o.dataset.role === 'user') o.classList.add('selected-user');
+    });
+    document.getElementById('systemMsgNote').style.display = 'none';
+    document.getElementById('insertRoleRow').dataset.locked = '';
+    document.getElementById('insertModal').classList.add('open');
+    document.getElementById('insertContent').focus();
+}
+
+function confirmInsert() {
+    const conv = State.getConversation();
+    if (!conv) { toast('Start a conversation first', true); return; }
+    const content = document.getElementById('insertContent').value.trim();
+    if (!content) { toast('Content is empty', true); return; }
+
+
+
+    if (State.editingMsgIdx !== null) {
+        confirmEditMessage(false);
+        return;
+    }
+
+    const m = newMessage(State.insertRole, content);
+    conv.messages.splice(State.insertAfterIndex + 1, 0, m);
+    if (conv.title === 'NEW SESSION' && conv.messages.length === 1) conv.title = content.slice(0, 40);
+
+
+    State.save();
+    document.getElementById('insertModal').classList.remove('open');
+    renderMessages();
+    renderConversations();
+}
+
+function confirmEditMessage(thenRegen) {
+    const conv = State.getConversation();
+    if (!conv) return;
+    const idx = State.editingMsgIdx;
+    const content = document.getElementById('insertContent').value.trim();
+    if (!content) { toast('Content is empty', true); return; }
+
+    conv.messages[idx].content = content;
+    conv.messages[idx].thinking = '';
+
+    if (thenRegen) conv.messages.splice(idx + 1);
+
+    State.editingMsgIdx = null;
+    document.getElementById('confirmInsertBtn').textContent = 'INSERT';
+    const regenBtn = document.getElementById('editRegenBtn');
+    if (regenBtn) regenBtn.style.display = 'none';
+
+    State.save();
+    document.getElementById('insertModal').classList.remove('open');
+    renderMessages();
+    renderConversations();
+
+    if (thenRegen) runAssistant(conv);
+}
+// ════════════════════════════════════════════════════════════════════════
+// SEND / STREAM
+// ════════════════════════════════════════════════════════════════════════
+async function sendMessage() {
+    if (State.isStreaming) return;
+    const inputEl = document.getElementById('messageInput');
+    const text = inputEl.value.trim();
+    if (!text && !State.pendingImages.length) return;
+
+    const model = document.getElementById('modelSelect').value;
+    if (!model) { toast('Select a model first', true); return; }
+    const provider = State.getProvider();
+    if (!provider) { toast('No active provider', true); return; }
+
+    if (!State.activeConvId) newConversation();
+    const conv = State.getConversation();
+    const images = [...State.pendingImages];
+    State.pendingImages = [];
+
+    conv.messages.push(newMessage('user', text, images));
+    if (conv.title === 'NEW SESSION') {
+        const src = text || (images.length ? '[image]' : '');
+        conv.title = src.slice(0, 42) + (src.length > 42 ? '…' : '');
+    }
+
+    State.save();
+    inputEl.value = '';
+    inputEl.style.height = Config.MIN_INPUT_HEIGHT_PX + 'px';
+    renderConversations();
+    renderMessages();
+    updatePendingImagesBar();
+
+    await runAssistant(conv);
+}
+
+async function runAssistant(conv) {
+    const provider = State.getProvider();
+    const model = document.getElementById('modelSelect').value;
+    if (!provider || !model) return;
+
+    const params = readParams();
+    const systemPrompt = document.getElementById('systemPrompt').value.trim();
+
+    conv.messages.push(newMessage('assistant', '', null, ''));
+    renderMessages();
+
+    State.abortController = new AbortController();
+    State.isStreaming = true;
+    document.getElementById('sendBtn').disabled = true;
+    document.getElementById('stopBtn').classList.add('visible');
+
+    const wireMessages = buildWireMessages(conv, systemPrompt, provider.proto);
+    let finalContent = '', finalThinking = '';
+
+    const onChunk = ({ content, thinking }) => {
+        finalContent = content;
+        finalThinking = thinking || '';
+        updateLastMessageInDOM(content, thinking || '');
+    };
+
+    try {
+        params.signal = State.abortController.signal;
+        if (provider.proto === 'ollama') {
+            await API.streamOllama(provider, model, wireMessages, params, onChunk);
+        } else {
+            const res = await API.streamOpenAI(provider, model, wireMessages, params, onChunk);
+            if (res) { finalContent = res.rawContent; finalThinking = res.reasoningContent || ''; }
+        }
+    } catch (err) {
+        const last = conv.messages[conv.messages.length - 1];
+        if (err.name === 'AbortError') {
+            if (!last.content && !last.thinking) last.content = '⊘ STOPPED';
+            toast('⊘ STOPPED');
+        } else {
+            last.content = '✕ ERROR: ' + err.message;
+            toast('✕ ' + err.message, true);
+        }
+    } finally {
+        const last = conv.messages[conv.messages.length - 1];
+        last.content = finalContent;
+        last.thinking = finalThinking;
+        State.abortController = null;
+        State.isStreaming = false;
+        document.getElementById('sendBtn').disabled = false;
+        document.getElementById('stopBtn').classList.remove('visible');
+        State.save();
+        renderMessages();
+        renderConversations();
+        setTimeout(() => { if (!State.isStreaming) document.getElementById('tokenCount').textContent = 'TOKENS: —'; }, Config.TOKEN_DISPLAY_RESET_MS);
+    }
+}
+
+function updateLastMessageInDOM(content, thinking) {
+    const area = document.getElementById('chatArea');
+    const bubbles = area.querySelectorAll('.message');
+    const last = bubbles[bubbles.length - 1];
+    if (!last) return;
+
+    const bodyEl = last.querySelector('.message-body');
+    if (bodyEl) bodyEl.innerHTML = Utils.formatContent(content) + '<span class="cursor"></span>';
+
+    if (thinking) {
+        let thinkEl = last.querySelector('.thinking-block');
+        if (!thinkEl) {
+            thinkEl = document.createElement('div');
+            thinkEl.className = 'thinking-block';
+            bodyEl.parentNode.insertBefore(thinkEl, bodyEl);
+        }
+        thinkEl.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div>${Utils.esc(thinking)}`;
+    }
+
+    if (State.shouldAutoScroll) area.scrollTop = area.scrollHeight;
+    const total = (content?.length || 0) + (thinking?.length || 0);
+    document.getElementById('tokenCount').textContent = `TOKENS: ~${Math.ceil(total / Config.APPROX_CHARS_PER_TOKEN)}`;
+}
+
+function readParams() {
+    return {
+        temperature: parseFloat(document.getElementById('tempSlider').value),
+        topP: parseFloat(document.getElementById('topPSlider').value),
+        topK: parseInt(document.getElementById('topKSlider').value) || 0,
+        freqPen: parseFloat(document.getElementById('freqPenSlider').value),
+        presPen: parseFloat(document.getElementById('presPenSlider').value),
+        maxTokens: parseInt(document.getElementById('maxTokens').value) || null,
+        seed: document.getElementById('seedInput').value !== '' ? parseInt(document.getElementById('seedInput').value) : null,
+        stopSeqs: Utils.parseStopSeqs(document.getElementById('stopSeqInput').value),
+        thinkingEnabled: State.thinkingEnabled,
+        streamEnabled: State.streamEnabled,
+    };
+}
+
+async function regenerateLast() {
+    if (State.isStreaming) return;
+    const conv = State.getConversation();
+    if (!conv || conv.messages.length < 2) return;
+    if (conv.messages[conv.messages.length - 1].role !== 'assistant') return;
+    conv.messages.pop();
+    State.save();
+    renderMessages();
+    await runAssistant(conv);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// PROVIDER ACTIONS
+// ════════════════════════════════════════════════════════════════════════
+function openProviderModal(editId = null) {
+    State.editingProvider = editId;
+    document.getElementById('modalTitle').textContent = editId ? 'EDIT PROVIDER' : 'ADD PROVIDER';
+    if (editId) {
+        const p = State.providers.find(x => x.id === editId);
+        if (p) {
+            document.getElementById('providerName').value = p.name;
+            document.getElementById('providerUrl').value = p.url;
+            document.getElementById('providerKey').value = p.key || '';
+            setProto(p.proto);
+            setVisionToggle(!!p.supportsVision);
+        }
+    } else {
+        document.getElementById('providerName').value = '';
+        document.getElementById('providerUrl').value = '';
+        document.getElementById('providerKey').value = '';
+        setProto('ollama');
+        setVisionToggle(false);
+    }
+    renderPresetGrid();
+    document.getElementById('providerModal').classList.add('open');
+    document.getElementById('providerName').focus();
+}
+
+function renderPresetGrid() {
+    document.getElementById('presetGrid').innerHTML = Config.PROVIDER_PRESETS.map((p, i) => `
+    <div class="preset-chip" data-pi="${i}" title="${p.url}">
+      <span class="chip-name">${Utils.esc(p.name)}</span>
+      <span class="chip-tag">${p.tag}</span>
+    </div>`).join('');
+}
+
+function applyPreset(i) {
+    const p = Config.PROVIDER_PRESETS[i];
+    document.getElementById('providerName').value = p.name;
+    document.getElementById('providerUrl').value = p.url;
+    setProto(p.proto);
+    document.querySelectorAll('.preset-chip').forEach((c, j) => {
+        c.style.borderColor = j === i ? 'var(--accent2)' : '';
+        c.style.color = j === i ? 'var(--accent2)' : '';
+    });
+    document.getElementById('providerKey').focus();
+}
+
+function setProto(proto) {
+    State.selectedProto = proto;
+    document.getElementById('protoOllama').classList.toggle('selected', proto === 'ollama');
+    document.getElementById('protoOpenai').classList.toggle('selected', proto === 'openai');
+    document.getElementById('protoHint').textContent = Config.PROTO_HINTS[proto];
+}
+
+function setVisionToggle(on) {
+    const row = document.getElementById('visionToggleRow');
+    const ind = document.getElementById('visionCheckIndicator');
+    document.getElementById('providerVision').checked = on;
+    ind.textContent = on ? '✓' : '';
+    row.classList.toggle('enabled', on);
+}
+
+async function saveProvider() {
+    const name = document.getElementById('providerName').value.trim();
+    const url = document.getElementById('providerUrl').value.trim().replace(/\/$/, '');
+    const key = document.getElementById('providerKey').value.trim();
+    const vis = document.getElementById('providerVision').checked;
+    if (!name) { toast('Enter a name', true); return; }
+    if (!url) { toast('Enter a URL', true); return; }
+
+    if (State.editingProvider) {
+        const idx = State.providers.findIndex(p => p.id === State.editingProvider);
+        if (idx >= 0) State.providers[idx] = { ...State.providers[idx], name, url, key, proto: State.selectedProto, supportsVision: vis };
+    } else {
+        State.providers.push({ id: Utils.id(), name, url, key, proto: State.selectedProto, supportsVision: vis, lastModel: null });
+    }
+
+    State.save();
+    document.getElementById('providerModal').classList.remove('open');
+    renderProviders();
+    updateAttachBtn();
+    if (State.providers.length === 1) activateProvider(State.providers[0].id);
+}
+
+async function deleteProvider(id) {
+    const p = State.providers.find(x => x.id === id);
+    const ok = await showConfirm(`DELETE PROVIDER\n"${p?.name || id}"?`);
+    if (!ok) return;
+    State.providers = State.providers.filter(x => x.id !== id);
+    if (State.activeProviderId === id) State.activeProviderId = State.providers[0]?.id || null;
+    State.save();
+    renderProviders();
+    if (State.activeProviderId) activateProvider(State.activeProviderId);
+    else { document.getElementById('statusDot').classList.add('offline'); document.getElementById('statusText').textContent = 'NO PROVIDER'; updateAttachBtn(); updateProviderBadge(); }
+}
+
+async function activateProvider(id) {
+    State.activeProviderId = id;
+    State.pendingImages = [];
+    State.save();
+    renderProviders();
+    updateAttachBtn();
+    updateProviderBadge();
+    await loadModels();
+}
+
+async function loadModels() {
+    const p = State.getProvider();
+    if (!p) return;
+    document.getElementById('modelSelect').innerHTML = '<option>LOADING...</option>';
+    document.getElementById('statusDot').classList.add('offline');
+    document.getElementById('statusText').textContent = 'CONNECTING...';
+    document.getElementById('activeBadge').style.display = 'none';
+    try {
+        const models = await API.fetchModels(p);
+        document.getElementById('modelSelect').innerHTML = models.length
+            ? models.map(m => `<option value="${Utils.esc(m)}">${Utils.esc(m)}</option>`).join('')
+            : '<option value="">No models found</option>';
+        document.getElementById('statusDot').classList.remove('offline');
+        document.getElementById('statusText').textContent = `${models.length} MODELS`;
+        updateProviderBadge();
+        toast(`◈ ${p.name}: ${models.length} models`);
+    } catch (err) {
+        document.getElementById('statusDot').classList.add('offline');
+        document.getElementById('statusText').textContent = 'CONNECT FAILED';
+        toast('✕ ' + err.message, true);
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// PROMPT LIBRARY
+// ════════════════════════════════════════════════════════════════════════
+function usePrompt(id) {
+    const p = State.prompts.find(x => x.id === id);
+    if (!p) return;
+    State.activePromptId = id;
+    document.getElementById('systemPrompt').value = p.content;
+    document.getElementById('activePromptName').textContent = p.name;
+    renderPromptList();
+    switchTab('params');
+}
+
+function useBuiltinPrompt(i) {
+    const p = Config.BUILTIN_PROMPTS[i];
+    State.activePromptId = null;
+    document.getElementById('systemPrompt').value = p.content;
+    document.getElementById('activePromptName').textContent = p.name;
+    renderPromptList();
+    switchTab('params');
+}
+
+function saveCurrentPrompt() {
+    const name = document.getElementById('newPromptName').value.trim();
+    const content = document.getElementById('systemPrompt').value;
+    if (!name) { toast('Enter a name', true); return; }
+    const p = { id: Utils.id(), name, content };
+    State.prompts.unshift(p);
+    State.activePromptId = p.id;
+    document.getElementById('activePromptName').textContent = name;
+    State.save();
+    document.getElementById('newPromptName').value = '';
+    document.getElementById('promptAddForm').style.display = 'none';
+    renderPromptList();
+    toast('✓ Prompt saved');
+}
+
+async function deletePrompt(id) {
+    const ok = await showConfirm('DELETE SAVED PROMPT?');
+    if (!ok) return;
+    State.prompts = State.prompts.filter(p => p.id !== id);
+    if (State.activePromptId === id) { State.activePromptId = null; document.getElementById('activePromptName').textContent = ''; }
+    State.save();
+    renderPromptList();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// IMAGE HANDLING
+// ════════════════════════════════════════════════════════════════════════
+async function addImages(files) {
+    for (const f of Array.from(files)) {
+        if (State.pendingImages.length >= Config.MAX_PENDING_IMAGES) break;
+        try {
+            const d = await ImageSvc.compress(f);
+            State.pendingImages.push(d);
+            updatePendingImagesBar();
+            toast(`🖼 Image attached (${State.pendingImages.length}/${Config.MAX_PENDING_IMAGES})`);
+        } catch { toast('✕ Image failed', true); }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// UI HELPERS
+// ════════════════════════════════════════════════════════════════════════
+function switchTab(name) {
+    document.querySelectorAll('.panel-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    document.getElementById('tabParams').style.display = name === 'params' ? 'block' : 'none';
+    document.getElementById('tabPrompts').style.display = name === 'prompts' ? 'block' : 'none';
+}
+
+function showConfirm(msg) {
+    return new Promise(resolve => {
+        document.getElementById('confirmMsg').textContent = msg;
+        const overlay = document.getElementById('confirmModal');
+        overlay.classList.add('open');
+
+        const yes = document.getElementById('confirmYes');
+        const no = document.getElementById('confirmNo');
+        const can = document.getElementById('confirmCancel');
+
+        const cleanup = (val) => {
+            overlay.classList.remove('open');
+            yes.removeEventListener('click', onYes);
+            no.removeEventListener('click', onNo);
+            can.removeEventListener('click', onNo);
+            resolve(val);
+        };
+
+        const onYes = () => cleanup(true);
+        const onNo = () => cleanup(false);
+        yes.addEventListener('click', onYes);
+        no.addEventListener('click', onNo);
+        can.addEventListener('click', onNo);
+    });
+}
+
+function toast(msg, isError = false) {
+    document.querySelectorAll('.toast').forEach(t => t.remove());
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.style.borderColor = isError ? 'var(--danger)' : 'var(--accent2)';
+    el.style.color = isError ? 'var(--danger)' : 'var(--accent2)';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), Config.TOAST_DISPLAY_MS);
+}
+
+async function copyText(idx) {
+    const conv = State.getConversation();
+    if (!conv?.messages[idx]) return;
+    const text = Utils.extractText(conv.messages[idx].content);
+    try { await navigator.clipboard.writeText(text); toast('✓ COPIED'); }
+    catch { toast('✕ Copy failed', true); }
+}
+
+function stopStreaming() {
+    if (State.abortController) { State.abortController.abort(); State.abortController = null; }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// EVENT WIRING
+// ════════════════════════════════════════════════════════════════════════
+function initEvents() {
+    // Panel tabs
+    document.querySelectorAll('.panel-tab').forEach(t => {
+        t.addEventListener('click', () => switchTab(t.dataset.tab));
+    });
+
+    // Slider labels
+    const sliders = {
+        tempSlider: 'tempVal',
+        topPSlider: 'topPVal',
+        topKSlider: 'topKVal',
+        freqPenSlider: 'freqPenVal',
+        presPenSlider: 'presPenVal',
+        thinkBudgetSlider: 'thinkBudgetVal',
+    };
+    Object.entries(sliders).forEach(([id, valId]) => {
+        const el = document.getElementById(id);
+        const val = document.getElementById(valId);
+        el.addEventListener('input', () => {
+            const n = parseFloat(el.value);
+            val.textContent = Number.isInteger(n) ? n : n.toFixed(2);
+        });
+    });
+
+    // Reset params
+    document.getElementById('resetParamsBtn').addEventListener('click', () => {
+        document.getElementById('tempSlider').value = 0.7; document.getElementById('tempVal').textContent = '0.70';
+        document.getElementById('topPSlider').value = 1; document.getElementById('topPVal').textContent = '1.00';
+        document.getElementById('topKSlider').value = 0; document.getElementById('topKVal').textContent = '—';
+        document.getElementById('freqPenSlider').value = 0; document.getElementById('freqPenVal').textContent = '0.00';
+        document.getElementById('presPenSlider').value = 0; document.getElementById('presPenVal').textContent = '0.00';
+        document.getElementById('thinkBudgetSlider').value = 8192; document.getElementById('thinkBudgetVal').textContent = '8192';
+        document.getElementById('maxTokens').value = '';
+        document.getElementById('seedInput').value = '';
+        document.getElementById('stopSeqInput').value = '';
+        toast('↺ PARAMS RESET');
+    });
+    // Top K: show — when 0
+    document.getElementById('topKSlider').addEventListener('input', function () {
+        document.getElementById('topKVal').textContent = this.value === '0' ? '—' : this.value;
+    });
+
+    // Thinking toggle
+    document.getElementById('thinkingToggle').addEventListener('click', () => {
+        State.thinkingEnabled = !State.thinkingEnabled;
+        const el = document.getElementById('thinkingToggle');
+        el.classList.toggle('thinking-enabled', State.thinkingEnabled);
+        document.getElementById('thinkingBudgetRow').style.display = State.thinkingEnabled ? 'block' : 'none';
+    });
+
+    // Stream toggle
+    document.getElementById('streamToggle').addEventListener('click', () => {
+        State.streamEnabled = !State.streamEnabled;
+        const el = document.getElementById('streamToggle');
+        el.classList.toggle('enabled', State.streamEnabled);
+    });
+
+    // Providers
+    document.getElementById('addProviderBtn').addEventListener('click', () => openProviderModal());
+    document.getElementById('closeProviderModal').addEventListener('click', () => document.getElementById('providerModal').classList.remove('open'));
+    document.getElementById('cancelProviderModal').addEventListener('click', () => document.getElementById('providerModal').classList.remove('open'));
+    document.getElementById('saveProviderBtn').addEventListener('click', saveProvider);
+
+    document.getElementById('providerModal').addEventListener('click', e => {
+        if (e.target.id === 'providerModal') document.getElementById('providerModal').classList.remove('open');
+    });
+
+    document.getElementById('presetGrid').addEventListener('click', e => {
+        const c = e.target.closest('.preset-chip');
+        if (c) applyPreset(parseInt(c.dataset.pi));
+    });
+
+    document.getElementById('protoOllama').addEventListener('click', () => setProto('ollama'));
+    document.getElementById('protoOpenai').addEventListener('click', () => setProto('openai'));
+
+    document.getElementById('visionToggleRow').addEventListener('click', () => {
+        const cb = document.getElementById('providerVision');
+        setVisionToggle(!cb.checked);
+    });
+
+    // Provider list
+    document.getElementById('providerList').addEventListener('click', e => {
+        const edit = e.target.closest('[data-action="edit-provider"]');
+        const del = e.target.closest('[data-action="del-provider"]');
+        const item = e.target.closest('.provider-item');
+        if (edit) { e.stopPropagation(); openProviderModal(edit.dataset.pid); }
+        else if (del) { e.stopPropagation(); deleteProvider(del.dataset.pid); }
+        else if (item) activateProvider(item.dataset.pid);
+    });
+
+    // Conversation list
+    document.getElementById('conversationList').addEventListener('click', e => {
+        const del = e.target.closest('[data-action="del-conv"]');
+        const item = e.target.closest('.conv-item');
+        if (del) { e.stopPropagation(); deleteConversation(del.dataset.cid); }
+        else if (item) selectConversation(item.dataset.cid);
+    });
+
+    document.getElementById('newConvBtn').addEventListener('click', newConversation);
+    document.getElementById('clearConvsBtn').addEventListener('click', clearAllConversations);
+
+    // Chat area (event delegation)
+    document.getElementById('chatArea').addEventListener('click', e => {
+        const t = e.target;
+        if (t.closest('[data-action="insert-msg"]')) {
+            const btn = t.closest('[data-action="insert-msg"]');
+            openInsertModal(parseInt(btn.dataset.after));
+        } else if (t.closest('[data-action="copy-msg"]')) {
+            copyText(parseInt(t.closest('[data-action="copy-msg"]').dataset.idx));
+        } else if (t.closest('[data-action="edit-msg"]')) {
+            startEditMessage(parseInt(t.closest('[data-action="edit-msg"]').dataset.idx));
+        } else if (t.closest('[data-action="del-msg"]')) {
+            deleteMessage(parseInt(t.closest('[data-action="del-msg"]').dataset.idx));
+        } else if (t.closest('[data-action="regen-from"]')) {
+            const btn = t.closest('[data-action="regen-from"]');
+            const idx = parseInt(btn.dataset.idx);
+            const role = btn.dataset.role;
+            const conv = State.getConversation();
+            if (!conv) return;
+            if (role === 'assistant') {
+                // remove this message and everything after
+                conv.messages.splice(idx);
+            } else {
+                // user message: keep it, remove everything after
+                conv.messages.splice(idx + 1);
+            }
+            State.save();
+            renderMessages();
+            runAssistant(conv);
+        } else if (t.closest('[data-action="lightbox"]')) {
+
+            const img = t.closest('[data-action="lightbox"]');
+            document.getElementById('lightboxImg').src = img.dataset.src;
+            document.getElementById('lightboxOverlay').classList.add('open');
+        }
+    });
+
+    // Pending images
+    document.getElementById('pendingImagesBar').addEventListener('click', e => {
+        const btn = e.target.closest('[data-action="rm-img"]');
+        if (btn) { State.pendingImages.splice(parseInt(btn.dataset.i), 1); updatePendingImagesBar(); }
+    });
+
+    // Input
+    const msgInput = document.getElementById('messageInput');
+    msgInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+    msgInput.addEventListener('input', function () {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, Config.MAX_INPUT_HEIGHT_PX) + 'px';
+    });
+    msgInput.addEventListener('paste', e => {
+        if (!State.visionEnabled || !e.clipboardData) return;
+        const imgs = Array.from(e.clipboardData.items).filter(i => i.type.startsWith('image/'));
+        imgs.forEach(item => { const f = item.getAsFile(); if (f) addImages([f]); });
+    });
+
+    document.getElementById('attachBtn').addEventListener('click', () => document.getElementById('imageFileInput').click());
+    document.getElementById('imageFileInput').addEventListener('change', e => { addImages(e.target.files); e.target.value = ''; });
+    document.getElementById('sendBtn').addEventListener('click', sendMessage);
+    document.getElementById('stopBtn').addEventListener('click', stopStreaming);
+
+    // Auto-scroll
+    const chatArea = document.getElementById('chatArea');
+    chatArea.addEventListener('wheel', e => { if (e.deltaY < 0) State.shouldAutoScroll = false; }, { passive: true });
+    chatArea.addEventListener('scroll', () => {
+        const dist = chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight;
+        if (dist < Config.AUTO_SCROLL_THRESHOLD_PX) State.shouldAutoScroll = true;
+    }, { passive: true });
+
+    // Lightbox
+    document.getElementById('lightboxOverlay').addEventListener('click', e => {
+        if (e.target.id === 'lightboxOverlay' || e.target.id === 'lightboxClose') {
+            document.getElementById('lightboxOverlay').classList.remove('open');
+        }
+    });
+    document.getElementById('lightboxClose').addEventListener('click', () => {
+        document.getElementById('lightboxOverlay').classList.remove('open');
+    });
+
+    // Insert modal
+
+    const closeInsertModal = () => {
+        State.editingMsgIdx = null;
+        document.getElementById('confirmInsertBtn').textContent = 'INSERT';
+        document.getElementById('insertRoleRow').dataset.locked = '';
+        const regenBtn = document.getElementById('editRegenBtn');
+        if (regenBtn) regenBtn.style.display = 'none';
+        document.getElementById('insertModal').classList.remove('open');
+    };
+    document.getElementById('closeInsertModal').addEventListener('click', closeInsertModal);
+    document.getElementById('cancelInsertModal').addEventListener('click', closeInsertModal);
+
+    document.getElementById('confirmInsertBtn').addEventListener('click', confirmInsert);
+    document.getElementById('insertModal').addEventListener('click', e => {
+        if (e.target.id === 'insertModal') {
+            State.editingMsgIdx = null;
+            document.getElementById('confirmInsertBtn').textContent = 'INSERT';
+            document.getElementById('insertModal').classList.remove('open');
+        }
+    });
+    document.getElementById('insertContent').addEventListener('keydown', e => {
+        if (e.key === 'Enter' && e.ctrlKey) confirmInsert();
+    });
+
+    // Insert role selector
+    document.getElementById('insertRoleRow').addEventListener('click', e => {
+        if (document.getElementById('insertRoleRow').dataset.locked === 'true') return;
+        const opt = e.target.closest('.role-option');
+        if (!opt) return;
+        State.insertRole = opt.dataset.role;
+        document.querySelectorAll('#insertRoleRow .role-option').forEach(o => {
+            o.className = 'role-option';
+            if (o === opt) o.classList.add(`selected-${opt.dataset.role}`);
+        });
+
+        document.getElementById('systemMsgNote').style.display = State.insertRole === 'system' ? 'block' : 'none';
+    });
+
+    // Prompt panel
+    document.getElementById('showAddPromptBtn').addEventListener('click', () => {
+        document.getElementById('promptAddForm').style.display = 'flex';
+        document.getElementById('newPromptName').focus();
+    });
+    document.getElementById('cancelAddPrompt').addEventListener('click', () => {
+        document.getElementById('promptAddForm').style.display = 'none';
+    });
+    document.getElementById('confirmAddPrompt').addEventListener('click', saveCurrentPrompt);
+
+    document.getElementById('promptList').addEventListener('click', e => {
+        const del = e.target.closest('[data-action="del-prompt"]');
+        const item = e.target.closest('[data-action="use-prompt"]');
+        if (del) { e.stopPropagation(); deletePrompt(del.dataset.pid); }
+        else if (item) usePrompt(item.dataset.pid);
+    });
+
+    document.getElementById('builtinPromptList').addEventListener('click', e => {
+        const item = e.target.closest('[data-action="use-builtin"]');
+        if (item) useBuiltinPrompt(parseInt(item.dataset.bi));
+    });
+
+    // ESC key
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+            document.getElementById('lightboxOverlay').classList.remove('open');
+            document.getElementById('providerModal').classList.remove('open');
+
+            State.editingMsgIdx = null;
+            document.getElementById('confirmInsertBtn').textContent = 'INSERT';
+            document.getElementById('insertModal').classList.remove('open');
+
+            document.getElementById('confirmModal').classList.remove('open');
+        }
+    });
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════════════════════
+function init() {
+    // Restore settings
+    const s = State.settings;
+    if (s.temperature !== undefined) { document.getElementById('tempSlider').value = s.temperature; document.getElementById('tempVal').textContent = Number(s.temperature).toFixed(2); }
+    if (s.topP !== undefined) { document.getElementById('topPSlider').value = s.topP; document.getElementById('topPVal').textContent = Number(s.topP).toFixed(2); }
+    if (s.maxTokens) document.getElementById('maxTokens').value = s.maxTokens;
+    if (s.systemPrompt) document.getElementById('systemPrompt').value = s.systemPrompt;
+
+    // Auto-save settings on change
+    ['tempSlider', 'topPSlider', 'topKSlider', 'freqPenSlider', 'presPenSlider', 'maxTokens', 'seedInput', 'stopSeqInput', 'systemPrompt', 'thinkBudgetSlider'].forEach(id => {
+        document.getElementById(id).addEventListener('change', () => {
+            State.settings = {
+                temperature: parseFloat(document.getElementById('tempSlider').value),
+                topP: parseFloat(document.getElementById('topPSlider').value),
+                topK: parseInt(document.getElementById('topKSlider').value),
+                freqPen: parseFloat(document.getElementById('freqPenSlider').value),
+                presPen: parseFloat(document.getElementById('presPenSlider').value),
+                maxTokens: parseInt(document.getElementById('maxTokens').value) || null,
+                seed: document.getElementById('seedInput').value || null,
+                stopSeqs: document.getElementById('stopSeqInput').value,
+                systemPrompt: document.getElementById('systemPrompt').value,
+            };
+            State.save();
+        });
+    });
+
+    initEvents();
+    renderAll();
+
+    // Activate stored provider
+    if (State.activeProviderId && State.providers.find(p => p.id === State.activeProviderId)) {
+        activateProvider(State.activeProviderId);
+    } else if (State.providers.length > 0) {
+        activateProvider(State.providers[0].id);
+    }
+
+    // Initial thinking toggle state
+    const thinkEl = document.getElementById('thinkingToggle');
+    thinkEl.classList.add('thinking-enabled');
+    document.getElementById('thinkingBudgetRow').style.display = 'block';
+    // Initial stream toggle state
+    document.getElementById('streamToggle').classList.add('enabled');
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}
