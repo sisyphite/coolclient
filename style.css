@@ -839,6 +839,7 @@ select option {
     line-height: 1.6;
     max-height: 100px;
     overflow-y: auto;
+    cursor: default;
 }
 .thinking-block ul,
 .thinking-block ol {
