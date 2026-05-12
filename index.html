@@ -18,6 +18,7 @@
   <title>LLM // TERMINAL</title>
   <link rel="icon" type="image/png" href="icon.png">
   <link href="style.css" rel="stylesheet"> 
+  <script src="marked.js"></script>
   <script src="main.js" defer></script>
 
 </head>
@@ -234,27 +235,6 @@
             placeholder="You are a helpful assistant...&#10;(leave blank to omit)"></textarea>
           <div class="panel-hint">Injected as system message in every request.</div>
         </div>
-
-        <!-- Thinking -->
-        <div class="panel-section">
-          <div class="panel-label">// generation</div>
-          <div class="toggle-row" id="thinkingToggle">
-            <div class="toggle-indicator"></div>
-            <span class="toggle-label">EXTENDED THINKING</span>
-          </div>
-          <div class="panel-hint" style="margin-top:4px">Enables chain-of-thought reasoning. Requires thinking-capable
-            model (e.g. deepseek-r1, QwQ, o1-style). Ollama: passes thinking=true.</div>
-
-          <div id="thinkingBudgetRow" style="margin-top:8px;display:none">
-            <div class="panel-label">THINKING BUDGET TOKENS <span class="panel-label-val"
-                id="thinkBudgetVal">8192</span></div>
-            <div class="slider-row">
-              <input type="range" id="thinkBudgetSlider" min="1024" max="32768" step="1024" value="8192">
-            </div>
-            <div class="slider-hints"><span>1K</span><span>32K</span></div>
-          </div>
-        </div>
-
         <!-- Temperature -->
         <div class="panel-section">
           <div class="panel-label">TEMPERATURE <span class="panel-label-val" id="tempVal">0.70</span></div>

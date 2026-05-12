@@ -1,4 +1,7 @@
 /* ── Design Tokens — Rosé Pine Dawn ─────────────────────────────── */
+::selection {
+    background: rgba(234, 157, 52, 0.35);
+}
 :root {
     --bg: #faf4ed;
     --bg2: #fffaf3;
@@ -660,6 +663,52 @@ select option {
     background: rgba(144, 122, 169, 0.05);
 }
 
+.message-body ul,
+.message-body ol {
+    padding-left: 2em;
+    margin: 0.5em 0;
+}
+
+.message-body li {
+    margin: 0.2em 0;
+}
+
+.message-body h1,
+.message-body h2,
+.message-body h3 {
+    margin: 0.8em 0 0.4em 0;
+    font-weight: 600;
+}
+
+.message-body p {
+    margin: 0.4em 0;
+}
+
+.message-body pre {
+    margin: 0.6em 0;
+    padding: 10px 12px;
+    overflow-x: auto;
+    background: var(--bg2);
+    border: 1px solid var(--line);
+}
+
+.message-body code {
+    font-family: monospace;
+    font-size: 13px;
+}
+
+.message-body table {
+    border-collapse: collapse;
+    margin: 0.6em 0;
+    width: 100%;
+}
+
+.message-body th,
+.message-body td {
+    border: 1px solid var(--line);
+    padding: 6px 10px;
+    text-align: left;
+}
 /* Insert divider between messages */
 .insert-divider {
     display: flex;
@@ -782,7 +831,7 @@ select option {
     background: rgba(144, 122, 169, 0.06);
     border: 1px solid rgba(144, 122, 169, 0.2);
     border-left: 2px solid var(--accent4);
-    padding: 8px 12px;
+    padding: 10px 16px;
     margin-bottom: 8px;
     font-family: 'Share Tech Mono', monospace;
     font-size: 10px;
@@ -791,7 +840,60 @@ select option {
     max-height: 100px;
     overflow-y: auto;
 }
+.thinking-block ul,
+.thinking-block ol {
+    padding-left: 1.6em;
+    margin: 0.5em 0;
+}
 
+.thinking-block li,
+.thinking-block li {
+    margin: 0.3em 0;
+    padding-left: 0.3em;
+}
+
+.thinking-block h1,
+.thinking-block h2,
+.thinking-block h3 {
+    margin: 0.8em 0 0.4em 0;
+    font-weight: 600;
+}
+
+.thinking-block p {
+    margin: 0.4em 0;
+}
+
+.thinking-block pre {
+    margin: 0.6em 0;
+    padding: 10px 12px;
+    overflow-x: auto;
+    background: var(--bg2);
+    border: 1px solid var(--line);
+}
+
+.thinking-block code {
+    font-family: monospace;
+    font-size: 13px;
+}
+
+.thinking-block table {
+    border-collapse: collapse;
+    margin: 0.6em 0;
+    width: 100%;
+}
+
+.thinking-block th,
+.thinking-block td {
+    border: 1px solid var(--line);
+    padding: 6px 10px;
+    text-align: left;
+}
+
+.thinking-block ul li::marker,
+.thinking-block ol li::marker {
+    color: rgba(144, 122, 169, 1);  /* 不透明，比正文略亮 */
+    font-size: 11px;
+}
 .thinking-label {
     font-size: 9px;
     letter-spacing: 2px;

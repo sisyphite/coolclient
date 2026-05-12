@@ -38,6 +38,7 @@ const Config = Object.freeze({
         { name: 'Kimi', url: 'https://api.moonshot.cn/v1', proto: 'openai', tag: '长文档' },
         { name: 'Ollama', url: 'http://localhost:11434', proto: 'ollama', tag: '本地' },
         { name: 'LM Studio', url: 'http://localhost:1234/v1', proto: 'openai', tag: '本地' },
+        { name: 'Fireworks AI', url: 'https://api.fireworks.ai/inference/v1', proto: 'openai', tag: '' },
     ],
     BUILTIN_PROMPTS: [
         { name: 'Blank', content: '' },
@@ -71,11 +72,7 @@ const Utils = {
     },
     formatContent(text) {
         if (!text) return '';
-        return this.esc(text)
-            .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-            .replace(/`([^`]+)`/g, '<code>$1</code>')
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\n/g, '<br>');
+        return marked.parse(text);
     },
     parseStopSeqs(raw) {
         if (!raw || !raw.trim()) return null;
@@ -114,7 +111,6 @@ const State = {
     insertRole: 'user',
     editingMsgIdx: null,
     visionEnabled: false, // current provider vision flag
-    thinkingEnabled: true, // extended thinking / chain-of-thought toggle
     streamEnabled: true,
 
     save() {
@@ -148,35 +144,7 @@ const API = {
                 const errBody = await r.json();
                 if (errBody?.error) msg = errBody.error;
             } catch { }
-            // 400 from a non-thinking model: strip the flag and retry once
-            if (r.status === 400 && params.thinkingEnabled) {
-                toast('⚠ Model does not support thinking — retrying without it');
-                const retryParams = { ...params, thinkingEnabled: false };
-                const retryBody = { model, messages, stream: retryParams.streamEnabled !== false, options };
-                const r2 = await fetch(`${p.url}/api/chat`, {
-                    method: 'POST', signal: params.signal,
-                    headers: { 'Content-Type': 'application/json', ...(p.key ? { Authorization: `Bearer ${p.key}` } : {}) },
-                    body: JSON.stringify(retryBody),
-                });
-                if (!r2.ok) throw new Error('HTTP ' + r2.status);
-                const reader2 = r2.body.getReader();
-                const dec2 = new TextDecoder();
-                let acc2 = '', accT2 = '';
-                try {
-                    while (true) {
-                        const { done, value } = await reader2.read();
-                        if (done) break;
-                        for (const line of dec2.decode(value).split('\n').filter(l => l.trim())) {
-                            try {
-                                const chunk = JSON.parse(line);
-                                if (chunk.message?.content) acc2 += chunk.message.content;
-                                onChunk({ content: acc2, thinking: accT2 });
-                            } catch { }
-                        }
-                    }
-                } finally { reader2.cancel(); }
-                return;
-            }
+
             throw new Error(msg);
         }
         const d = await r.json();
@@ -194,35 +162,6 @@ const API = {
                 const errBody = await r.json();
                 if (errBody?.error) msg = errBody.error;
             } catch { }
-            // 400 from a non-thinking model: strip the flag and retry once
-            if (r.status === 400 && params.thinkingEnabled) {
-                toast('⚠ Model does not support thinking — retrying without it');
-                const retryParams = { ...params, thinkingEnabled: false };
-                const retryBody = { model, messages, stream: retryParams.streamEnabled !== false, options };
-                const r2 = await fetch(`${p.url}/api/chat`, {
-                    method: 'POST', signal: params.signal,
-                    headers: { 'Content-Type': 'application/json', ...(p.key ? { Authorization: `Bearer ${p.key}` } : {}) },
-                    body: JSON.stringify(retryBody),
-                });
-                if (!r2.ok) throw new Error('HTTP ' + r2.status);
-                const reader2 = r2.body.getReader();
-                const dec2 = new TextDecoder();
-                let acc2 = '', accT2 = '';
-                try {
-                    while (true) {
-                        const { done, value } = await reader2.read();
-                        if (done) break;
-                        for (const line of dec2.decode(value).split('\n').filter(l => l.trim())) {
-                            try {
-                                const chunk = JSON.parse(line);
-                                if (chunk.message?.content) acc2 += chunk.message.content;
-                                onChunk({ content: acc2, thinking: accT2 });
-                            } catch { }
-                        }
-                    }
-                } finally { reader2.cancel(); }
-                return;
-            }
             throw new Error(msg);
         }
         const d = await r.json();
@@ -234,7 +173,7 @@ const API = {
     },
 
     async streamOllama(p, model, messages, params, onChunk) {
-        const { temperature, topP, topK, maxTokens, seed, stopSeqs, signal, thinkingEnabled, streamEnabled } = params;
+        const { temperature, topP, topK, maxTokens, seed, stopSeqs, signal, streamEnabled } = params;
         const options = { temperature };
         if (topP < 1) options.top_p = topP;
         if (topK > 0) options.top_k = topK;
@@ -243,7 +182,7 @@ const API = {
         if (stopSeqs) options.stop = stopSeqs;
 
         const body = { model, messages, stream: streamEnabled !== false, options };
-        if (thinkingEnabled) body.think = true;
+
 
         const r = await fetch(`${p.url}/api/chat`, {
             method: 'POST', signal,
@@ -273,7 +212,7 @@ const API = {
     },
 
     async streamOpenAI(p, model, messages, params, onChunk) {
-        const { temperature, topP, topK, freqPen, presPen, maxTokens, seed, stopSeqs, signal, thinkingEnabled, streamEnabled } = params;
+        const { temperature, topP, topK, freqPen, presPen, maxTokens, seed, stopSeqs, signal, streamEnabled } = params;
         const url = this._addVersion(p.url) + '/chat/completions';
 
         const body = { model, messages, stream: streamEnabled !== false, temperature };
@@ -285,10 +224,6 @@ const API = {
         if (seed != null) body.seed = seed;
         if (stopSeqs) body.stop = stopSeqs;
 
-        // OpenAI reasoning_effort for o-series / extended thinking params
-        if (thinkingEnabled) {
-            body.reasoning_effort = 'high';
-        }
 
         const r = await fetch(url, {
             method: 'POST', signal,
@@ -505,7 +440,7 @@ function buildMessageHtml(m, idx, isLast) {
 
     const roleLabel = isUser ? 'USER' : isAsst ? 'ASSISTANT' : 'SYSTEM';
     const thinkHtml = m.thinking
-        ? `<div class="thinking-block"><div class="thinking-label">// CHAIN OF THOUGHT</div>${Utils.esc(m.thinking)}</div>`
+        ? `<div class="thinking-block"><div class="thinking-label">// CHAIN OF THOUGHT</div><div class="thinking-body">${Utils.formatContent(m.thinking)}</div></div>`
         : '';
 
     const imagesHtml = m.images?.length
@@ -723,17 +658,14 @@ function openInsertModal(afterIndex) {
 }
 
 function confirmInsert() {
-    const conv = State.getConversation();
-    if (!conv) { toast('Start a conversation first', true); return; }
-    const content = document.getElementById('insertContent').value.trim();
-    if (!content) { toast('Content is empty', true); return; }
-
-
-
     if (State.editingMsgIdx !== null) {
         confirmEditMessage(false);
         return;
     }
+    const conv = State.getConversation();
+    if (!conv) { toast('Start a conversation first', true); return; }
+    const content = document.getElementById('insertContent').value.trim();
+    if (!content) { toast('Content is empty', true); return; }
 
     const m = newMessage(State.insertRole, content);
     conv.messages.splice(State.insertAfterIndex + 1, 0, m);
@@ -878,7 +810,7 @@ function updateLastMessageInDOM(content, thinking) {
             thinkEl.className = 'thinking-block';
             bodyEl.parentNode.insertBefore(thinkEl, bodyEl);
         }
-        thinkEl.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div>${Utils.esc(thinking)}`;
+        thinkEl.innerHTML = `<div class="thinking-label">// CHAIN OF THOUGHT</div><div class="thinking-body">${Utils.formatContent(thinking)}</div>`;
     }
 
     if (State.shouldAutoScroll) area.scrollTop = area.scrollHeight;
@@ -896,7 +828,6 @@ function readParams() {
         maxTokens: parseInt(document.getElementById('maxTokens').value) || null,
         seed: document.getElementById('seedInput').value !== '' ? parseInt(document.getElementById('seedInput').value) : null,
         stopSeqs: Utils.parseStopSeqs(document.getElementById('stopSeqInput').value),
-        thinkingEnabled: State.thinkingEnabled,
         streamEnabled: State.streamEnabled,
     };
 }
@@ -1030,6 +961,11 @@ async function loadModels() {
         document.getElementById('modelSelect').innerHTML = models.length
             ? models.map(m => `<option value="${Utils.esc(m)}">${Utils.esc(m)}</option>`).join('')
             : '<option value="">No models found</option>';
+
+        // 恢复上次选中的 model
+        if (p?.lastModel && models.includes(p.lastModel)) {
+            document.getElementById('modelSelect').value = p.lastModel;
+        }
         document.getElementById('statusDot').classList.remove('offline');
         document.getElementById('statusText').textContent = `${models.length} MODELS`;
         updateProviderBadge();
@@ -1157,7 +1093,7 @@ async function copyText(idx) {
 }
 
 function stopStreaming() {
-    if (State.abortController) { State.abortController.abort(); State.abortController = null; }
+    if (State.abortController) { State.abortController.abort(); }
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -1176,7 +1112,6 @@ function initEvents() {
         topKSlider: 'topKVal',
         freqPenSlider: 'freqPenVal',
         presPenSlider: 'presPenVal',
-        thinkBudgetSlider: 'thinkBudgetVal',
     };
     Object.entries(sliders).forEach(([id, valId]) => {
         const el = document.getElementById(id);
@@ -1194,7 +1129,6 @@ function initEvents() {
         document.getElementById('topKSlider').value = 0; document.getElementById('topKVal').textContent = '—';
         document.getElementById('freqPenSlider').value = 0; document.getElementById('freqPenVal').textContent = '0.00';
         document.getElementById('presPenSlider').value = 0; document.getElementById('presPenVal').textContent = '0.00';
-        document.getElementById('thinkBudgetSlider').value = 8192; document.getElementById('thinkBudgetVal').textContent = '8192';
         document.getElementById('maxTokens').value = '';
         document.getElementById('seedInput').value = '';
         document.getElementById('stopSeqInput').value = '';
@@ -1205,13 +1139,7 @@ function initEvents() {
         document.getElementById('topKVal').textContent = this.value === '0' ? '—' : this.value;
     });
 
-    // Thinking toggle
-    document.getElementById('thinkingToggle').addEventListener('click', () => {
-        State.thinkingEnabled = !State.thinkingEnabled;
-        const el = document.getElementById('thinkingToggle');
-        el.classList.toggle('thinking-enabled', State.thinkingEnabled);
-        document.getElementById('thinkingBudgetRow').style.display = State.thinkingEnabled ? 'block' : 'none';
-    });
+
 
     // Stream toggle
     document.getElementById('streamToggle').addEventListener('click', () => {
@@ -1251,6 +1179,14 @@ function initEvents() {
         if (edit) { e.stopPropagation(); openProviderModal(edit.dataset.pid); }
         else if (del) { e.stopPropagation(); deleteProvider(del.dataset.pid); }
         else if (item) activateProvider(item.dataset.pid);
+    });
+
+    // Model select
+    document.getElementById('modelSelect').addEventListener('change', function () {
+        const p = State.getProvider();
+        if (!p) return;
+        p.lastModel = this.value;
+        State.save();
     });
 
     // Conversation list
@@ -1432,7 +1368,7 @@ function init() {
     if (s.systemPrompt) document.getElementById('systemPrompt').value = s.systemPrompt;
 
     // Auto-save settings on change
-    ['tempSlider', 'topPSlider', 'topKSlider', 'freqPenSlider', 'presPenSlider', 'maxTokens', 'seedInput', 'stopSeqInput', 'systemPrompt', 'thinkBudgetSlider'].forEach(id => {
+    ['tempSlider', 'topPSlider', 'topKSlider', 'freqPenSlider', 'presPenSlider', 'maxTokens', 'seedInput', 'stopSeqInput', 'systemPrompt'].forEach(id => {
         document.getElementById(id).addEventListener('change', () => {
             State.settings = {
                 temperature: parseFloat(document.getElementById('tempSlider').value),
@@ -1459,10 +1395,6 @@ function init() {
         activateProvider(State.providers[0].id);
     }
 
-    // Initial thinking toggle state
-    const thinkEl = document.getElementById('thinkingToggle');
-    thinkEl.classList.add('thinking-enabled');
-    document.getElementById('thinkingBudgetRow').style.display = 'block';
     // Initial stream toggle state
     document.getElementById('streamToggle').classList.add('enabled');
 }
