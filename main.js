@@ -147,6 +147,7 @@ const State = {
     editingMsgIdx: null,
     visionEnabled: false, // current provider vision flag
     streamEnabled: true,
+    anonymounMode: false,
 
     save() {
         Storage.set(Config.STORAGE_KEYS.providers, this.providers);
@@ -157,7 +158,11 @@ const State = {
     },
 
     getProvider() { return this.providers.find(p => p.id === this.activeProviderId) || null; },
-    getConversation() { return this.conversations.find(c => c.id === this.activeConvId) || null; },
+    getConversation() {
+        // 匿名模式下优先返回内存临时会话
+        if (this._anonConv && this.activeConvId === this._anonConv.id) return this._anonConv;
+        return this.conversations.find(c => c.id === this.activeConvId) || null;
+    },
 };
 
 // ════════════════════════════════════════════════════════════════════════
@@ -751,8 +756,16 @@ async function sendMessage() {
     const provider = State.getProvider();
     if (!provider) { toast('No active provider', true); return; }
 
-    if (!State.activeConvId) newConversation();
-    const conv = State.getConversation();
+    let conv;
+    if (State.anonymousMode) {
+        // 内存临时会话，不推入 State.conversations，不持久化
+        conv = { id: Utils.id(), title: 'ANON', messages: [], createdAt: new Date().toISOString() };
+        State.activeConvId = conv.id; // 让 runAssistant 里的 renderMessages/renderConversations 不崩
+        State._anonConv = conv;       // 挂在 State 上供 runAssistant 取用
+    } else {
+        if (!State.activeConvId) newConversation();
+        conv = State.getConversation();
+    }
     const images = [...State.pendingImages];
     State.pendingImages = [];
 
@@ -822,9 +835,9 @@ async function runAssistant(conv) {
         State.isStreaming = false;
         document.getElementById('sendBtn').disabled = false;
         document.getElementById('stopBtn').classList.remove('visible');
-        State.save();
+        if (!State.anonymousMode) State.save();
         renderMessages();
-        renderConversations();
+        if (!State.anonymousMode) renderConversations();
         setTimeout(() => { if (!State.isStreaming) document.getElementById('tokenCount').textContent = 'TOKENS: —'; }, Config.TOKEN_DISPLAY_RESET_MS);
     }
 }
@@ -1181,6 +1194,13 @@ function initEvents() {
         State.streamEnabled = !State.streamEnabled;
         const el = document.getElementById('streamToggle');
         el.classList.toggle('enabled', State.streamEnabled);
+    });
+    // Anonymous mode toggle
+    document.getElementById('anonToggle').addEventListener('click', () => {
+        State.anonymousMode = !State.anonymousMode;
+        State._anonConv = null;
+        document.getElementById('anonToggle').classList.toggle('enabled', State.anonymousMode);
+        toast(State.anonymousMode ? '◈ ANON MODE ON' : '◈ ANON MODE OFF');
     });
 
     // Providers

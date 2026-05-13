@@ -17,7 +17,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LLM // TERMINAL</title>
   <link rel="icon" type="image/png" href="icon.png">
-  <link href="style.css" rel="stylesheet"> 
+  <link href="style.css" rel="stylesheet">
   <script src="marked.js"></script>
   <script src="main.js" defer></script>
 
@@ -310,8 +310,12 @@
             <div class="toggle-indicator"></div>
             <span class="toggle-label">STREAMING OUTPUT</span>
           </div>
-          <div class="panel-hint" style="margin-top:4px">Stream tokens as generated. Disable to receive full response at
-            once.</div>
+          <div class="panel-hint" style="margin-top:4px">Stream tokens as generated. Disable to receive full response at once.</div>
+          <div class="toggle-row" id="anonToggle">
+            <div class="toggle-indicator"></div>
+            <span class="toggle-label">ANON MODE</span>
+          </div>
+          <div class="panel-hint" style="margin-top:4px">Anonymous mode. Every message is treated as a new conversation.</div>
         </div>
 
       </div>
