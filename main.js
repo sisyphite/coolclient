@@ -1,4 +1,3 @@
-
 // ════════════════════════════════════════════════════════════════════════
 // CONFIG
 // ════════════════════════════════════════════════════════════════════════
@@ -20,7 +19,7 @@ const Config = Object.freeze({
         settings: 'llm_settings',
         prompts: 'llm_prompts',
     },
-    PROTO_COLORS: { ollama: '#286983', openai: '#56949f' },
+    PROTO_COLORS: { ollama: '#f15a3f', openai: '#56949f' },
     PROTO_HINTS: {
         ollama: 'Ollama /api/chat — supports thinking field natively',
         openai: 'OpenAI-compatible /v1/chat/completions — Groq, Together, etc.',
@@ -445,9 +444,9 @@ function renderMessages() {
       <div class="empty-geo"><svg viewBox="0 0 120 120" fill="none">
         <polygon points="60,5 115,32.5 115,87.5 60,115 5,87.5 5,32.5" stroke="#dfdad9" stroke-width="1"/>
         <polygon points="60,20 100,40 100,80 60,100 20,80 20,40" stroke="#cecacd" stroke-width="1"/>
-        <polygon points="60,35 85,47.5 85,72.5 60,85 35,72.5 35,47.5" stroke="#286983" stroke-width="1" opacity="0.5"/>
-        <circle cx="60" cy="60" r="8" stroke="#286983" stroke-width="1"/>
-        <circle cx="60" cy="60" r="3" fill="#286983" opacity="0.6"/>
+        <polygon points="60,35 85,47.5 85,72.5 60,85 35,72.5 35,47.5" stroke="#f15a3f" stroke-width="1" opacity="0.5"/>
+        <circle cx="60" cy="60" r="8" stroke="#f15a3f" stroke-width="1"/>
+        <circle cx="60" cy="60" r="3" fill="#f15a3f" opacity="0.6"/>
       </svg></div>
       <div class="empty-text">AWAITING INPUT</div>
     </div>`;
@@ -479,10 +478,10 @@ function buildMessageHtml(m, idx, isLast) {
     const isSys = m.role === 'system';
 
     const avatarHtml = isUser
-        ? `<svg viewBox="0 0 32 32" fill="none"><polygon points="16,2 30,9 30,23 16,30 2,23 2,9" stroke="#ea9d34" stroke-width="1" fill="rgba(234,157,52,0.08)"/><circle cx="16" cy="16" r="3" fill="#ea9d34" opacity="0.8"/></svg>`
+        ? `<svg viewBox="0 0 32 32" fill="none"><polygon points="16,2 30,9 30,23 16,30 2,23 2,9" stroke="#f5a623" stroke-width="1" fill="rgba(245,166,35,0.08)"/><circle cx="16" cy="16" r="3" fill="#f5a623" opacity="0.8"/></svg>`
         : isAsst
-            ? `<svg viewBox="0 0 32 32" fill="none"><rect x="2" y="2" width="28" height="28" stroke="#286983" stroke-width="1" fill="rgba(40,105,131,0.07)"/><circle cx="16" cy="16" r="4" stroke="#286983" stroke-width="1"/><circle cx="16" cy="16" r="1.5" fill="#286983" opacity="0.8"/></svg>`
-            : `<svg viewBox="0 0 32 32" fill="none"><polygon points="16,2 30,9 30,23 16,30 2,23 2,9" stroke="#907aa9" stroke-width="1" fill="rgba(144,122,169,0.08)"/><circle cx="16" cy="16" r="3" fill="#907aa9" opacity="0.8"/></svg>`;
+            ? `<svg viewBox="0 0 32 32" fill="none"><rect x="2" y="2" width="28" height="28" stroke="#f15a3f" stroke-width="1" fill="rgba(241,90,63,0.07)"/><circle cx="16" cy="16" r="4" stroke="#f15a3f" stroke-width="1"/><circle cx="16" cy="16" r="1.5" fill="#f15a3f" opacity="0.8"/></svg>`
+            : `<svg viewBox="0 0 32 32" fill="none"><polygon points="16,2 30,9 30,23 16,30 2,23 2,9" stroke="#9b8ac4" stroke-width="1" fill="rgba(155,138,196,0.08)"/><circle cx="16" cy="16" r="3" fill="#9b8ac4" opacity="0.8"/></svg>`;
 
     const roleLabel = isUser ? 'USER' : isAsst ? 'ASSISTANT' : 'SYSTEM';
     const thinkHtml = m.thinking
