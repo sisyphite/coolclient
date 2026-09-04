@@ -57,9 +57,9 @@
     --shadow-focus: 0 0 0 3px rgba(241, 90, 63, 0.20);
 
     --r-sm: 8px;
-    --r-md: 10px;
-    --r-lg: 14px;
-    --r-xl: 18px;
+    --r-md: 5px;
+    --r-lg: 5px;
+    --r-xl: 5px;
     --panel-w: 320px;
 }
 
@@ -72,7 +72,7 @@
 body {
     background: var(--bg);
     color: var(--text);
-    font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    font-family: "Google Sans Flex", "Noto Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
     font-size: 14px;
     font-weight: 500;
     -webkit-font-smoothing: antialiased;
