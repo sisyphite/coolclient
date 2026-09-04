@@ -698,7 +698,7 @@ select option {
 }
 
 .msg-text {
-    white-space: pre-wrap;
+    white-space: normal;
 }
 
 /* Insert divider between messages */
