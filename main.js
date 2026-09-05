@@ -214,6 +214,12 @@ const API = {
     },
 
     _addVersion(url) {
+        // Gemini's OpenAI-compat root ends in "…/v1beta/openai" — that's already
+        // the full base (real endpoint: …/v1beta/openai/chat/completions). Appending
+        // /v1 here would hit the wrong path. Providers like Groq end in a bare
+        // "/openai" with NO preceding version segment and still need /v1 appended,
+        // so we only special-case URLs that already carry a version marker before it.
+        if (/\/v\d+(?:beta\d*)?\/openai\/?$/i.test(url)) return url;
         return (url.endsWith('/v1') || /\/v\d+$/.test(url)) ? url : url + '/v1';
     },
 
